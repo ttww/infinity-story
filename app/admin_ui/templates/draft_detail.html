@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ draft.title }} — Infinity Story Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; }
+        .header { background: #1a1a2e; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #8b5cf6; font-size: 1.3rem; }
+        .header a { color: #a78bfa; text-decoration: none; }
+        .container { max-width: 1600px; margin: 1rem auto; padding: 0 2rem; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .card { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 1.5rem; }
+        .card h2 { color: #8b5cf6; font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .btn { display: inline-block; padding: 0.5rem 1rem; background: #8b5cf6; color: #fff; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 0.85rem; margin-right: 0.5rem; margin-bottom: 0.5rem; }
+        .btn:hover { background: #7c3aed; }
+        .btn-secondary { background: #333; }
+        .btn-secondary:hover { background: #444; }
+        .btn-success { background: #16a34a; }
+        .btn-success:hover { background: #15803d; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .badge-draft { background: #334; color: #aab; }
+        .badge-generating { background: #1e3a5f; color: #93c5fd; }
+        .badge-needs_review { background: #78350f; color: #fcd34d; }
+        .badge-needs_repair { background: #7c2d12; color: #fdba74; }
+        .badge-validated { background: #14532d; color: #86efac; }
+        .badge-approved { background: #1e3a5f; color: #93c5fd; }
+        .badge-published { background: #16a34a; color: #fff; }
+        .badge-failed { background: #7f1d1d; color: #fca5a5; }
+        .info-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #222; }
+        .info-label { color: #888; }
+        .info-value { font-weight: 600; }
+        .score { font-size: 1.5rem; font-weight: 700; }
+        .score-good { color: #86efac; }
+        .score-bad { color: #fca5a5; }
+        .issues { list-style: none; }
+        .issues li { padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+        .issue-high { background: #7f1d1d; border-left: 3px solid #dc2626; }
+        .issue-medium { background: #78350f; border-left: 3px solid #f59e0b; }
+        .issue-low { background: #1e3a5f; border-left: 3px solid #3b82f6; }
+        .full-width { grid-column: 1 / -1; }
+        .actions-bar { margin-bottom: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; }
+
+        /* ── Graph Visualization ── */
+        .graph-container { position: relative; background: #0a0a14; border-radius: 8px; overflow: hidden; border: 1px solid #222; }
+        .graph-toolbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #141; border-bottom: 1px solid #222; }
+        .graph-toolbar button { background: #333; color: #e0e0e0; border: 1px solid #444; border-radius: 4px; padding: 0.25rem 0.75rem; cursor: pointer; font-size: 0.8rem; }
+        .graph-toolbar button:hover { background: #444; }
+        .graph-toolbar .zoom-level { color: #888; font-size: 0.8rem; margin-left: auto; }
+        .graph-viewport { width: 100%; height: 500px; overflow: hidden; cursor: grab; position: relative; }
+        .graph-viewport.dragging { cursor: grabbing; }
+        .graph-svg { transform-origin: 0 0; transition: none; }
+        .graph-svg .node-rect { rx: 6; ry: 6; cursor: pointer; transition: opacity 0.2s; }
+        .graph-svg .node-rect:hover { opacity: 0.8; }
+        .graph-svg .node-rect.selected { stroke: #fbbf24; stroke-width: 3; }
+        .graph-svg .node-start { fill: #14532d; stroke: #22c55e; stroke-width: 2; }
+        .graph-svg .node-end { fill: #1e3a5f; stroke: #3b82f6; stroke-width: 2; }
+        .graph-svg .node-scene { fill: #1e1b3a; stroke: #6366f1; stroke-width: 1.5; }
+        .graph-svg .node-decision { fill: #312e2b; stroke: #a78bfa; stroke-width: 1.5; }
+        .graph-svg .node-problematic { fill: #7c2d12; stroke: #ef4444; stroke-width: 2; stroke-dasharray: 5,3; }
+        .graph-svg .node-label { fill: #e0e0e0; font-size: 11px; font-weight: 600; pointer-events: none; text-anchor: middle; }
+        .graph-svg .node-sublabel { fill: #999; font-size: 9px; pointer-events: none; text-anchor: middle; }
+        .graph-svg .node-icon { font-size: 14px; pointer-events: none; text-anchor: middle; }
+        .graph-svg .edge-path { fill: none; stroke: #555; stroke-width: 1.5; pointer-events: none; }
+        .graph-svg .edge-path.dangling { stroke: #ef4444; stroke-dasharray: 4,2; }
+        .graph-svg .edge-label { fill: #888; font-size: 8px; pointer-events: none; }
+        .graph-legend { display: flex; gap: 1rem; padding: 0.5rem 1rem; background: #0a0a14; border-top: 1px solid #222; font-size: 0.75rem; color: #888; }
+        .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+        .legend-swatch { width: 16px; height: 12px; border-radius: 3px; border: 1px solid; }
+
+        /* ── Node Detail Panel ── */
+        .node-detail-panel { position: fixed; top: 0; right: -520px; width: 500px; height: 100vh; background: #1a1a2e; border-left: 2px solid #8b5cf6; box-shadow: -4px 0 20px rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto; transition: right 0.3s ease; }
+        .node-detail-panel.open { right: 0; }
+        .node-detail-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid #333; background: #14142a; position: sticky; top: 0; z-index: 10; }
+        .node-detail-header h3 { color: #8b5cf6; font-size: 1.1rem; }
+        .node-detail-close { background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer; }
+        .node-detail-close:hover { color: #fff; }
+        .node-detail-body { padding: 1.5rem; }
+        .detail-section { margin-bottom: 1.5rem; }
+        .detail-section h4 { color: #a78bfa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; border-bottom: 1px solid #333; padding-bottom: 0.3rem; }
+        .detail-field { display: grid; grid-template-columns: 120px 1fr; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid #1a1a2e; }
+        .detail-field-label { color: #888; font-size: 0.85rem; }
+        .detail-field-value { font-size: 0.85rem; }
+        .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+        .tag { display: inline-block; padding: 0.15rem 0.5rem; background: #2a2a4a; border-radius: 3px; font-size: 0.75rem; }
+        .tag-char { background: #1e3a5f; color: #93c5fd; }
+        .tag-reveal { background: #14532d; color: #86efac; }
+        .tag-warning { background: #7c2d12; color: #fdba74; }
+        .tag-error { background: #7f1d1d; color: #fca5a5; }
+        .choice-item { background: #111; border-radius: 4px; padding: 0.75rem; margin-bottom: 0.5rem; border-left: 3px solid #6366f1; }
+        .choice-item .choice-label { font-weight: 600; margin-bottom: 0.25rem; }
+        .choice-item .choice-next { color: #93c5fd; font-size: 0.8rem; }
+        .choice-item .choice-state { color: #888; font-size: 0.75rem; margin-top: 0.25rem; font-family: monospace; }
+        .review-issue { background: #111; border-radius: 4px; padding: 0.5rem; margin-bottom: 0.5rem; border-left: 3px solid; }
+        .review-issue.severity-high { border-color: #dc2626; }
+        .review-issue.severity-medium { border-color: #f59e0b; }
+        .review-issue.severity-low { border-color: #3b82f6; }
+        .review-issue .issue-severity { font-weight: 700; font-size: 0.75rem; }
+        .review-issue .issue-problem { font-size: 0.85rem; margin-top: 0.25rem; }
+        .review-issue .issue-suggestion { font-size: 0.8rem; color: #888; margin-top: 0.25rem; font-style: italic; }
+        .tech-warning { background: #111; border-radius: 4px; padding: 0.5rem; margin-bottom: 0.5rem; border-left: 3px solid; }
+        .tech-warning.severity-error { border-color: #dc2626; }
+        .tech-warning.severity-warning { border-color: #f59e0b; }
+        .tech-warning .warning-msg { font-size: 0.85rem; }
+        .state-updates-box { background: #0a0a14; border-radius: 4px; padding: 0.75rem; font-family: monospace; font-size: 0.8rem; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
+        pre { background: #0a0a14; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; }
+        .check { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+        .check-ok { color: #86efac; }
+        .check-fail { color: #fca5a5; }
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 999; display: none; }
+        .overlay.show { display: block; }
+
+        /* ── Toast Notifications ── */
+        @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+        /* ── Incremental Editing ── */
+        .btn-danger { background: #dc2626; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-edit { background: #4f46e5; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+        .btn-edit:hover { background: #4338ca; }
+        .btn-regen { background: #059669; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+        .btn-regen:hover { background: #047857; }
+        .btn-del { background: #dc2626; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+        .btn-del:hover { background: #b91c1c; }
+        .edit-form { background: #111; border-radius: 6px; padding: 1rem; margin-top: 0.5rem; }
+        .edit-form label { display: block; color: #888; font-size: 0.75rem; margin-bottom: 0.2rem; margin-top: 0.5rem; }
+        .edit-form input, .edit-form textarea, .edit-form select { width: 100%; background: #0a0a14; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; padding: 0.4rem; font-size: 0.85rem; }
+        .edit-form textarea { resize: vertical; min-height: 60px; }
+        .edit-form .form-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+        .node-actions { display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        .choice-edit-form { background: #0a0a14; border-radius: 4px; padding: 0.5rem; margin-top: 0.3rem; }
+        .choice-edit-form input { background: #111; border: 1px solid #333; color: #e0e0e0; border-radius: 3px; padding: 0.25rem; font-size: 0.8rem; width: 100%; margin-bottom: 0.3rem; }
+        .add-node-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1a2e; border: 2px solid #8b5cf6; border-radius: 12px; padding: 2rem; z-index: 2000; width: 400px; max-width: 90vw; display: none; }
+        .add-node-modal.show { display: block; }
+        .add-node-modal h3 { color: #8b5cf6; margin-bottom: 1rem; }
+        .version-history { margin-top: 1rem; }
+        .version-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem; border-bottom: 1px solid #222; font-size: 0.8rem; }
+        .version-item:hover { background: #14142a; }
+        .version-num { color: #8b5cf6; font-weight: 700; min-width: 35px; }
+        .version-by { color: #888; min-width: 100px; }
+        .version-notes { color: #ccc; flex: 1; }
+        .version-diff { color: #93c5fd; font-size: 0.75rem; }
+        .diff-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.7rem; background: #1e3a5f; color: #93c5fd; }
+
+        /* ── Rich Content / Split / Templates ── */
+        .scene-text-display { background: #0a0a14; border-radius: 6px; padding: 1rem; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto; border-left: 3px solid #6366f1; }
+        .scene-text-edit { min-height: 120px; font-family: Georgia, serif; line-height: 1.5; }
+        .choice-rationale { color: #93c5fd; font-size: 0.75rem; font-style: italic; margin-top: 0.25rem; padding-left: 0.5rem; border-left: 2px solid #3b82f6; }
+        .split-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1a2e; border: 2px solid #8b5cf6; border-radius: 12px; padding: 2rem; z-index: 2000; width: 600px; max-width: 90vw; max-height: 85vh; overflow-y: auto; display: none; }
+        .split-modal.show { display: block; }
+        .split-modal h3 { color: #8b5cf6; margin-bottom: 1rem; }
+        .split-text-area { width: 100%; min-height: 150px; background: #0a0a14; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; padding: 0.5rem; font-size: 0.85rem; resize: vertical; line-height: 1.5; }
+        .split-positions { width: 100%; background: #0a0a14; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; padding: 0.4rem; font-size: 0.85rem; }
+        .template-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1a2e; border: 2px solid #8b5cf6; border-radius: 12px; padding: 2rem; z-index: 2000; width: 500px; max-width: 90vw; max-height: 80vh; overflow-y: auto; display: none; }
+        .template-modal.show { display: block; }
+        .template-modal h3 { color: #8b5cf6; margin-bottom: 1rem; }
+        .template-item { background: #111; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; cursor: pointer; border: 1px solid #222; transition: border-color 0.2s; }
+        .template-item:hover { border-color: #8b5cf6; }
+        .template-item .tpl-name { font-weight: 600; color: #a78bfa; font-size: 0.85rem; }
+        .template-item .tpl-desc { color: #888; font-size: 0.75rem; margin-top: 0.2rem; }
+        .template-item .tpl-cat { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.65rem; background: #1e3a5f; color: #93c5fd; margin-top: 0.3rem; }
+        .btn-split { background: #7c3aed; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+        .btn-split:hover { background: #6d28d9; }
+        .btn-template { background: #0891b2; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+        .btn-template:hover { background: #0e7490; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 <a href="/admin/">Infinity Story Admin</a> → {{ draft.title }}</h1>
+        <span class="badge badge-{{ draft.status }}">{{ draft.status }}</span>
+    </div>
+    <div class="container">
+        <div class="actions-bar">
+            <form method="POST" action="/admin/draft/{{ draft.id }}/review" style="display:inline">
+                <button class="btn btn-secondary" type="submit">🔍 Review</button>
+            </form>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/repair" style="display:inline">
+                <button class="btn btn-secondary" type="submit">🔧 Repair</button>
+            </form>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/validate" style="display:inline">
+                <button class="btn btn-secondary" type="submit">✅ Validate</button>
+            </form>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/approve" style="display:inline">
+                <button class="btn btn-secondary" type="submit" {% if draft.status != 'validated' %}disabled{% endif %}>👍 Approve</button>
+            </form>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/publish" style="display:inline">
+                <button class="btn btn-success" type="submit" {% if not eligibility.eligible %}disabled{% endif %}>🚀 Publish</button>
+            </form>
+            <a href="/admin/draft/{{ draft.id }}/simulate" class="btn">▶ Simulate</a>
+            <button class="btn" style="background: #7c3aed;" onclick="showEnhanceModal()">✨ Vertiefen</button>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/delete" style="display:inline" onsubmit="return confirmDeleteDetail('{{ draft.title|replace("'", "\\'") }}')">
+                <button class="btn btn-danger" type="submit">🗑 Löschen</button>
+            </form>
+        </div>
+
+        <div class="grid">
+            <!-- Draft Info -->
+            <div class="card">
+                <h2>Draft Info</h2>
+                <div class="info-row"><span class="info-label">ID</span><span class="info-value">{{ draft.id }}</span></div>
+                <div class="info-row"><span class="info-label">Titel</span><span class="info-value">{{ draft.title }}</span></div>
+                <div class="info-row"><span class="info-label">Genre</span><span class="info-value">{{ draft.genre }}</span></div>
+                <div class="info-row"><span class="info-label">Tone</span><span class="info-value">{{ draft.tone }}</span></div>
+                <div class="info-row"><span class="info-label">Sprache</span><span class="info-value">{{ draft.language }}</span></div>
+                <div class="info-row"><span class="info-label">Zielalter</span><span class="info-value">{{ draft.target_age }}</span></div>
+                <div class="info-row"><span class="info-label">Status</span><span class="badge badge-{{ draft.status }}">{{ draft.status }}</span></div>
+                <div class="info-row"><span class="info-label">Score</span><span class="score {{ 'score-good' if draft.quality_score and draft.quality_score >= 7.0 else 'score-bad' }}">{{ draft.quality_score if draft.quality_score else '—' }}</span></div>
+                {% if version %}
+                <div class="info-row"><span class="info-label">Version</span><span class="info-value">v{{ version.version_number }} ({{ version.created_by }})</span></div>
+                {% endif %}
+            </div>
+
+            <!-- Review Report -->
+            <div class="card">
+                <h2>Review Report</h2>
+                {% if review %}
+                <div class="info-row"><span class="info-label">Score</span><span class="score {{ 'score-good' if review.score >= 7.0 else 'score-bad' }}">{{ review.score }}</span></div>
+                <div style="margin-top: 0.5rem; color: #888; font-size: 0.85rem;">{{ review.summary }}</div>
+                {% if review.issues %}
+                <ul class="issues" style="margin-top: 1rem;">
+                    {% for issue in review.issues %}
+                    <li class="issue-{{ issue.severity }}">
+                        <strong>[{{ issue.severity|upper }}]</strong> {{ issue.problem }}
+                        {% if issue.suggestion %}<br><em>{{ issue.suggestion }}</em>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% else %}
+                <p style="color: #666;">Kein Review vorhanden. Klicke "Review" um zu starten.</p>
+                {% endif %}
+            </div>
+
+            <!-- Validation Report -->
+            <div class="card">
+                <h2>Validation Report</h2>
+                {% if validation %}
+                <div class="info-row"><span class="info-label">Gültig</span><span class="{{ 'check-ok' if validation.is_valid else 'check-fail' }}">{{ '✅ Ja' if validation.is_valid else '❌ Nein' }}</span></div>
+                {% if validation.errors %}
+                <h3 style="color: #fca5a5; margin-top: 1rem; font-size: 0.85rem;">Errors</h3>
+                <ul class="issues">
+                    {% for err in validation.errors %}
+                    <li class="issue-high">{{ err }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% if validation.warnings %}
+                <h3 style="color: #fcd34d; margin-top: 1rem; font-size: 0.85rem;">Warnings</h3>
+                <ul class="issues">
+                    {% for warn in validation.warnings %}
+                    <li class="issue-medium">{{ warn }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% else %}
+                <p style="color: #666;">Keine Validierung vorhanden. Klicke "Validate" um zu starten.</p>
+                {% endif %}
+            </div>
+
+            <!-- Publishing Eligibility -->
+            <div class="card">
+                <h2>Publishing Status</h2>
+                {% if eligibility.reasons %}
+                {% for reason in eligibility.reasons %}
+                <div class="check check-fail">❌ {{ reason }}</div>
+                {% endfor %}
+                {% elif eligibility.eligible %}
+                <div class="check check-ok">✅ Draft is eligible for publishing</div>
+                {% else %}
+                <div class="check">⏳ Approval required before publishing</div>
+                {% endif %}
+            </div>
+
+            <!-- ═══ Graph Visualization (Spec §8.1.3) ═══ -->
+            <div class="card full-width">
+                <h2>Story Graph — Interactive SVG ({{ graph.nodes|length }} nodes, {{ layout.edges|length }} edges)</h2>
+                <div class="graph-container">
+                    <div class="graph-toolbar">
+                        <button onclick="zoomGraph(1.2)">🔍+ Zoom In</button>
+                        <button onclick="zoomGraph(0.83)">🔍- Zoom Out</button>
+                        <button onclick="resetGraphView()">⟲ Reset</button>
+                        <button onclick="fitGraphView()">⊞ Fit</button>
+                        <button onclick="showAddNodeModal()" style="background: #4f46e5; color: #fff;">➕ Add Node</button>
+                        <span class="zoom-level" id="zoom-level">100%</span>
+                    </div>
+                    <div class="graph-viewport" id="graph-viewport">
+                        <svg class="graph-svg" id="graph-svg" width="{{ layout.svg_width }}" height="{{ layout.svg_height }}" viewBox="0 0 {{ layout.svg_width }} {{ layout.svg_height }}">
+                            <!-- Edges -->
+                            {% for edge in layout.edges %}
+                            <path class="edge-path {{ 'dangling' if edge.dangling }}"
+                                  d="M {{ edge.x1 }},{{ edge.y1 }} C {{ edge.cx1 }},{{ edge.cy1 }} {{ edge.cx2 }},{{ edge.cy2 }} {{ edge.x2 }},{{ edge.y2 }}"
+                                  marker-end="url(#arrowhead)" />
+                            <text class="edge-label" x="{{ (edge.x1 + edge.x2) / 2 }}" y="{{ (edge.y1 + edge.y2) / 2 - 5 }}">
+                                {{ edge.label[:25] }}{% if edge.label|length > 25 %}…{% endif %}
+                            </text>
+                            {% endfor %}
+
+                            <!-- Nodes -->
+                            {% for node in layout.nodes %}
+                            <g onclick="showNodeDetail('{{ node.id }}')" style="cursor: pointer;">
+                                <rect class="node-rect {{ 'node-problematic' if node.is_problematic else 'node-start' if node.is_start else 'node-end' if node.is_end else 'node-' ~ node.type }}"
+                                      x="{{ node.x }}" y="{{ node.y }}"
+                                      width="{{ node.width }}" height="{{ node.height }}" />
+                                <text class="node-icon" x="{{ node.x + node.width / 2 }}" y="{{ node.y + 15 }}">
+                                    {% if node.is_start %}▶️{% elif node.is_end %}🏁{% elif node.is_problematic %}⚠️{% else %}⬜{% endif %}
+                                </text>
+                                <text class="node-label" x="{{ node.x + node.width / 2 }}" y="{{ node.y + 33 }}">
+                                    {{ node.title[:20] }}{% if node.title|length > 20 %}…{% endif %}
+                                </text>
+                                <text class="node-sublabel" x="{{ node.x + node.width / 2 }}" y="{{ node.y + 48 }}">
+                                    Akt {{ node.act }} · {{ node.choice_count }} choices
+                                </text>
+                            </g>
+                            {% endfor %}
+
+                            <!-- Arrow marker definition -->
+                            <defs>
+                                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <polygon points="0 0, 8 3, 0 6" fill="#555" />
+                                </marker>
+                                <marker id="arrowhead-dangling" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <polygon points="0 0, 8 3, 0 6" fill="#ef4444" />
+                                </marker>
+                            </defs>
+                        </svg>
+                    </div>
+                    <div class="graph-legend">
+                        <div class="legend-item"><div class="legend-swatch" style="background: #14532d; border-color: #22c55e;"></div>Start</div>
+                        <div class="legend-item"><div class="legend-swatch" style="background: #1e3a5f; border-color: #3b82f6;"></div>Ende</div>
+                        <div class="legend-item"><div class="legend-swatch" style="background: #1e1b3a; border-color: #6366f1;"></div>Scene</div>
+                        <div class="legend-item"><div class="legend-swatch" style="background: #312e2b; border-color: #a78bfa;"></div>Decision</div>
+                        <div class="legend-item"><div class="legend-swatch" style="background: #7c2d12; border-color: #ef4444; border-style: dashed;"></div>Problematic</div>
+                        <div class="legend-item" style="margin-left: auto; color: #666;">Click a node for details · Drag to pan · Scroll to zoom</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Version History (Spec §8.1.6) ═══ -->
+            <div class="card full-width">
+                <h2>Version History</h2>
+                <div class="version-history" id="version-history">
+                    <p style="color: #666;">Loading versions…</p>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-secondary" onclick="loadVersionDiff()">📊 Show Diff (last 2 versions)</button>
+                </div>
+                <div id="diff-display" style="margin-top: 1rem; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Add Node Modal ═══ -->
+    <div class="add-node-modal" id="add-node-modal">
+        <h3>➕ Add New Node</h3>
+        <form method="POST" action="/admin/draft/{{ draft.id }}/nodes/add">
+            <label style="color: #888; font-size: 0.75rem;">Node ID (optional, auto-generated if empty)</label>
+            <input type="text" name="node_id" placeholder="auto-generated" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+            <label style="color: #888; font-size: 0.75rem;">Title</label>
+            <input type="text" name="title" value="New Node" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+            <label style="color: #888; font-size: 0.75rem;">Type</label>
+            <select name="type" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+                <option value="scene">scene</option>
+                <option value="decision">decision</option>
+                <option value="start">start</option>
+                <option value="end">end</option>
+            </select>
+            <label style="color: #888; font-size: 0.75rem;">Act</label>
+            <input type="number" name="act" value="1" min="1" max="5" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+            <label style="color: #888; font-size: 0.75rem;">Scene Goal</label>
+            <textarea name="scene_goal" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;min-height:60px;"></textarea>
+            <label style="color: #888; font-size: 0.75rem;">Szenen-Text (optional, ausführlicher narrativer Text)</label>
+            <textarea name="scene_text" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;min-height:80px;font-family:Georgia,serif;line-height:1.5;" placeholder="Ausführlicher Szenen-Text..."></textarea>
+            <label style="color: #888; font-size: 0.75rem;">Location</label>
+            <input type="text" name="location" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+            <label style="color: #888; font-size: 0.75rem;">Characters (comma-separated)</label>
+            <input type="text" name="characters" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+            <label style="color: #888; font-size: 0.75rem;">Mood</label>
+            <input type="text" name="mood" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.75rem;">
+            <div style="display:flex;gap:0.5rem;">
+                <button type="button" class="btn" onclick="submitAddNode()">Add Node</button>
+                <button type="button" class="btn btn-secondary" onclick="closeAddNodeModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ═══ Enhancement Modal (Multi-Pass Story Enhancement) ═══ -->
+    <div class="add-node-modal" id="enhance-modal">
+        <h3>✨ Story Vertiefen</h3>
+        <p style="color: #888; font-size: 0.8rem; margin-bottom: 1rem;">Wähle einen Vertiefungs-Modus. Der gesamte Story-Graph wird mit LLM-Unterstützung verbessert.</p>
+        <form method="POST" action="/admin/draft/{{ draft.id }}/enhance" id="enhance-form">
+            <label style="color: #888; font-size: 0.75rem;">Vertiefungs-Modus</label>
+            <select name="mode" id="enhance-mode" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+                <option value="atmosphere">🌫️ Mehr Atmosphäre — Sinnliche Details, Stimmung</option>
+                <option value="characters">👥 Charakter-Vertiefung — Beziehungen, Geheimnisse, Bögen</option>
+                <option value="choices">⚖️ Komplexere Choices — Moralische Dilemmata</option>
+                <option value="arc_expansion">📈 Akt erweitern — Neue Knoten für dünnere Akte</option>
+                <option value="thematic">🎭 Thematische Vertiefung — Sub-Plots, Foreshadowing</option>
+                <option value="critic_based">🔧 Kritiker-Feedback — Batch-Repair basierend auf Review</option>
+            </select>
+            <div id="arc-expansion-options" style="display:none;">
+                <label style="color: #888; font-size: 0.75rem;">Ziel-Akt (1-5)</label>
+                <input type="number" name="target_act" min="1" max="5" placeholder="z.B. 2" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+                <label style="color: #888; font-size: 0.75rem;">Anzahl neuer Knoten</label>
+                <input type="number" name="add_node_count" min="1" max="20" placeholder="z.B. 3" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.5rem;">
+            </div>
+            <label style="color: #888; font-size: 0.75rem;">Zusätzliche Anweisung (optional)</label>
+            <textarea name="instruction" placeholder="z.B. 'Mehr Spannung im zweiten Akt aufbauen'" style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.4rem;font-size:0.85rem;margin-bottom:0.75rem;min-height:60px;"></textarea>
+            <div style="display:flex;gap:0.5rem;">
+                <button type="submit" class="btn" style="background: #7c3aed;">✨ Vertiefen</button>
+                <button type="button" class="btn btn-secondary" onclick="closeEnhanceModal()">Abbrechen</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ═══ Split Node Modal ═══ -->
+    <div class="split-modal" id="split-modal">
+        <h3>🔀 Node aufspalten</h3>
+        <p style="color:#888;font-size:0.8rem;margin-bottom:1rem;">Teile diesen Node in mehrere Sub-Nodes auf. Der Text wird an den angegebenen Positionen (Zeichennummern) geschnitten.</p>
+        <form id="split-form" method="POST" action="">
+            <label style="color:#888;font-size:0.75rem;">Zu teilender Text</label>
+            <textarea class="split-text-area" name="split_text" id="split-text-area" placeholder="Text hier einfügen oder aus dem Node übernehmen..."></textarea>
+            <label style="color:#888;font-size:0.75rem;margin-top:0.5rem;">Split-Positionen (Komma-separierte Zeichennummern, z.B. 120,250)</label>
+            <input type="text" class="split-positions" name="split_positions" placeholder="z.B. 100,200" id="split-positions">
+            <label style="color:#888;font-size:0.75rem;margin-top:0.5rem;">Titel (optional, Komma-separiert, Anzahl = Anzahl Segmente)</label>
+            <input type="text" class="split-positions" name="titles" placeholder="z.B. Ankunft, Verfolgung, Konfrontation">
+            <div style="display:flex;gap:0.5rem;margin-top:1rem;">
+                <button type="submit" class="btn">🔀 Split</button>
+                <button type="button" class="btn btn-secondary" onclick="closeSplitModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ═══ Template Modal ═══ -->
+    <div class="template-modal" id="template-modal">
+        <h3>📋 Story-Fragment einfügen</h3>
+        <p style="color:#888;font-size:0.8rem;margin-bottom:1rem;">Wähle ein vorgefertigtes Story-Fragment, das in diesen Node eingefügt wird.</p>
+        <div id="template-list-container">
+            <p style="color:#666;">Lade Templates...</p>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeTemplateModal()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- ═══ Sticky Bottom Event Log Bar (t_e904d515) — shared component ═══ -->
+    <link rel="stylesheet" href="/admin/static/event_log_bar.css">
+    <div id="elb-container" data-draft-id="{{ draft.id }}"></div>
+    <script src="/admin/static/event_log_bar.js"></script>
+
+    <!-- ═══ Node Detail Panel (Spec §8.1.4) ═══ -->
+    <div class="overlay" id="overlay" onclick="closeNodeDetail()"></div>
+    <div class="node-detail-panel" id="node-detail-panel">
+        <div class="node-detail-header">
+            <h3 id="detail-title">Node Details</h3>
+            <button class="node-detail-close" onclick="closeNodeDetail()">×</button>
+        </div>
+        <div class="node-detail-body" id="detail-body">
+            <p style="color: #666;">Click a node in the graph to see details.</p>
+        </div>
+    </div>
+
+
+    <script>
+        // ── Core constants (must be defined before any function calls) ──
+        const draftId = '{{ draft.id }}';
+        window.draftId = draftId;
+
+        // ── Toast notification system ──
+        function showToast(message, type = 'success') {
+            let container = document.getElementById('toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toast-container';
+                container.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:3000;display:flex;flex-direction:column;gap:0.5rem;';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            const bg = type === 'success' ? '#16a34a' : type === 'error' ? '#dc2626' : '#8b5cf6';
+            toast.style.cssText = `background:${bg};color:#fff;padding:0.75rem 1.25rem;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-size:0.85rem;max-width:350px;animation:toastIn 0.3s ease;`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        // ── Node detail data (pre-rendered for all nodes) ──
+        const nodesDetail = {{ nodes_detail_json | safe }};
+
+        // ── Graph zoom/pan state ──
+        let zoom = 1.0;
+        let panX = 0, panY = 0;
+        let isDragging = false;
+        let dragStartX = 0, dragStartY = 0;
+        let panStartX = 0, panStartY = 0;
+
+        const svg = document.getElementById('graph-svg');
+        const viewport = document.getElementById('graph-viewport');
+        const zoomLevel = document.getElementById('zoom-level');
+
+        function updateTransform() {
+            svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+            zoomLevel.textContent = Math.round(zoom * 100) + '%';
+        }
+
+        function zoomGraph(factor) {
+            zoom = Math.min(Math.max(zoom * factor, 0.1), 5);
+            updateTransform();
+        }
+
+        function resetGraphView() {
+            zoom = 1.0;
+            panX = 0;
+            panY = 0;
+            updateTransform();
+        }
+
+        function fitGraphView() {
+            const vw = viewport.clientWidth;
+            const vh = viewport.clientHeight;
+            const sw = {{ layout.svg_width }};
+            const sh = {{ layout.svg_height }};
+            zoom = Math.min(vw / sw, vh / sh) * 0.9;
+            panX = (vw - sw * zoom) / 2;
+            panY = (vh - sh * zoom) / 2;
+            updateTransform();
+        }
+
+        // Pan support
+        viewport.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.node-rect')) return;
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            panStartX = panX;
+            panStartY = panY;
+            viewport.classList.add('dragging');
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panX = panStartX + (e.clientX - dragStartX);
+            panY = panStartY + (e.clientY - dragStartY);
+            updateTransform();
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            viewport.classList.remove('dragging');
+        });
+
+        // Scroll-to-zoom
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.1 : 0.9;
+            zoomGraph(factor);
+        }, { passive: false });
+
+        // ── Node detail panel ──
+        function showNodeDetail(nodeId) {
+            const detail = nodesDetail[nodeId];
+            if (!detail) return;
+
+            document.getElementById('detail-title').textContent = detail.title || nodeId;
+
+            const body = document.getElementById('detail-body');
+
+            // Highlight selected node
+            document.querySelectorAll('.node-rect').forEach(el => el.classList.remove('selected'));
+            const nodeG = [...document.querySelectorAll('g')].find(g => g.getAttribute('onclick') === `showNodeDetail('${nodeId}')`);
+            if (nodeG) {
+                const rect = nodeG.querySelector('.node-rect');
+                if (rect) rect.classList.add('selected');
+            }
+
+            let html = '';
+
+            // Node action buttons
+            html += '<div class="node-actions">';
+            html += `<button class="btn btn-edit" onclick="toggleEditForm('${nodeId}')">✏️ Edit</button>`;
+            html += `<button class="btn btn-regen" onclick="regenerateNode('${nodeId}')">🔄 Re-generate</button>`;
+            html += `<button class="btn btn-split" onclick="showSplitModal('${nodeId}')">🔀 Split</button>`;
+            html += `<button class="btn btn-template" onclick="showTemplateModal('${nodeId}')">📋 Template</button>`;
+            if (!detail.is_start) {
+                html += `<button class="btn btn-del" onclick="deleteNode('${nodeId}')">🗑️ Delete</button>`;
+            }
+            html += '</div>';
+
+            // Edit form (hidden by default)
+            html += `<div id="edit-form-${nodeId}" style="display:none;">`;
+            html += '<div class="edit-form">';
+            html += `<form method="POST" action="/admin/draft/${draftId}/nodes/${nodeId}/edit">`;
+            html += '<label>Title</label>';
+            html += `<input type="text" name="title" value="${escapeAttr(detail.title || '')}">`;
+            html += '<label>Type</label>';
+            html += `<select name="type"><option value="scene"${detail.type==='scene'?' selected':''}>scene</option><option value="decision"${detail.type==='decision'?' selected':''}>decision</option><option value="start"${detail.type==='start'?' selected':''}>start</option><option value="end"${detail.type==='end'?' selected':''}>end</option></select>`;
+            html += '<label>Act</label>';
+            html += `<input type="number" name="act" value="${detail.act || 1}" min="1" max="5">`;
+            html += '<label>Scene Goal</label>';
+            html += `<textarea name="scene_goal">${escapeHtml(detail.scene_goal || '')}</textarea>`;
+            html += '<label>Szenen-Text (Rich Narrative)</label>';
+            html += `<textarea name="scene_text" class="scene-text-edit" placeholder="Ausführlicher Szenen-Text — überschreibt die LLM-Generierung zur Laufzeit">${escapeHtml(detail.scene_text || '')}</textarea>`;
+            html += '<label>Location</label>';
+            html += `<input type="text" name="location" value="${escapeAttr(detail.location || '')}">`;
+            html += '<label>Mood</label>';
+            html += `<input type="text" name="mood" value="${escapeAttr(detail.mood || '')}">`;
+            html += '<label>Characters (comma-separated)</label>';
+            html += `<input type="text" name="characters" value="${escapeAttr((detail.characters || []).join(', '))}">`;
+            html += '<label>Reveals (one per line)</label>';
+            html += `<textarea name="reveals">${escapeHtml((detail.reveals || []).join('\\n'))}</textarea>`;
+            html += '<label>Quality Notes (one per line)</label>';
+            html += `<textarea name="quality_notes">${escapeHtml((detail.quality_notes || []).join('\\n'))}</textarea>`;
+            html += '<div class="form-actions">';
+            html += `<button type="button" class="btn" onclick="submitEditForm('${nodeId}')">💾 Save</button>`;
+            html += `<button type="button" class="btn btn-secondary" onclick="toggleEditForm('${nodeId}')">Cancel</button>`;
+            html += '</div>';
+            html += '</form>';
+            html += '</div>';
+            html += '</div>';
+
+            // Basic info
+            html += '<div class="detail-section">';
+            html += '<h4>Basic Info</h4>';
+            html += `<div class="detail-field"><span class="detail-field-label">ID</span><span class="detail-field-value"><code>${detail.id}</code></span></div>`;
+            html += `<div class="detail-field"><span class="detail-field-label">Titel</span><span class="detail-field-value">${escapeHtml(detail.title || '')}</span></div>`;
+            html += `<div class="detail-field"><span class="detail-field-label">Typ</span><span class="detail-field-value"><span class="badge ${detail.is_start ? 'badge-validated' : detail.is_end ? 'badge-approved' : 'badge-needs_review'}">${detail.type}</span></span></div>`;
+            html += `<div class="detail-field"><span class="detail-field-label">Akt</span><span class="detail-field-value">${detail.act}</span></div>`;
+            html += `<div class="detail-field"><span class="detail-field-label">Ort</span><span class="detail-field-value">${escapeHtml(detail.location || '—')}</span></div>`;
+            html += `<div class="detail-field"><span class="detail-field-label">Szenenziel</span><span class="detail-field-value">${escapeHtml(detail.scene_goal || '—')}</span></div>`;
+            html += `<div class="detail-field"><span class="detail-field-label">Mood</span><span class="detail-field-value">${escapeHtml(detail.mood || '—')}</span></div>`;
+            html += '</div>';
+
+            // Scene Text (stored narrative)
+            if (detail.scene_text && detail.scene_text.trim()) {
+                html += '<div class="detail-section">';
+                html += '<h4>Szenen-Text</h4>';
+                html += `<div class="scene-text-display">${escapeHtml(detail.scene_text)}</div>`;
+                html += '</div>';
+            }
+
+            // Characters
+            if (detail.characters && detail.characters.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>Figuren</h4>';
+                html += '<div class="tag-list">';
+                detail.characters.forEach(c => {
+                    html += `<span class="tag tag-char">${c}</span>`;
+                });
+                html += '</div></div>';
+            }
+
+            // Known facts
+            if (detail.known_facts && detail.known_facts.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>Known Facts</h4>';
+                html += '<ul style="list-style: disc; padding-left: 1.5rem; font-size: 0.85rem;">';
+                detail.known_facts.forEach(f => {
+                    html += `<li>${f}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Reveals
+            if (detail.reveals && detail.reveals.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>Reveals</h4>';
+                html += '<div class="tag-list">';
+                detail.reveals.forEach(r => {
+                    html += `<span class="tag tag-reveal">${r}</span>`;
+                });
+                html += '</div></div>';
+            }
+
+            // Choices
+            if (detail.choices && detail.choices.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>Choices</h4>';
+                detail.choices.forEach(c => {
+                    html += '<div class="choice-item">';
+                    html += `<div class="choice-label">${escapeHtml(c.label)}</div>`;
+                    html += `<div class="choice-next">→ ${escapeHtml(c.next_node_id || '(none)')}</div>`;
+                    if (c.rationale && c.rationale.trim()) {
+                        html += `<div class="choice-rationale">${escapeHtml(c.rationale)}</div>`;
+                    }
+                    if (c.state_updates && Object.keys(c.state_updates).length > 0) {
+                        html += `<div class="choice-state">${escapeHtml(JSON.stringify(c.state_updates))}</div>`;
+                    }
+                    // Choice edit form
+                    html += `<button class="btn btn-edit" style="margin-top:0.4rem;" onclick="toggleChoiceEdit('${nodeId}','${c.id}')">✏️ Edit Choice</button>`;
+                    html += `<div id="choice-edit-${nodeId}-${c.id}" style="display:none;">`;
+                    html += '<div class="choice-edit-form">';
+                    html += `<form method="POST" action="/admin/draft/${draftId}/nodes/${nodeId}/choices/${c.id}/edit">`;
+                    html += `<label style="color:#888;font-size:0.7rem;">Label</label>`;
+                    html += `<input type="text" name="label" value="${escapeAttr(c.label || '')}">`;
+                    html += `<label style="color:#888;font-size:0.7rem;">Next Node ID</label>`;
+                    const nodeIds = Object.keys(nodesDetail);
+                    html += '<select name="next_node_id">';
+                    html += '<option value="">(none)</option>';
+                    nodeIds.forEach(nid => {
+                        html += `<option value="${nid}"${c.next_node_id===nid?' selected':''}>${nid}</option>`;
+                    });
+                    html += '</select>';
+                    html += `<label style="color:#888;font-size:0.7rem;">Begründung (Warum diese Choice wichtig ist)</label>`;
+                    html += `<input type="text" name="rationale" value="${escapeAttr(c.rationale || '')}" placeholder="Warum ist diese Wahl wichtig?">`;
+                    html += `<label style="color:#888;font-size:0.7rem;">State Updates (JSON)</label>`;
+                    html += `<input type="text" name="state_updates" value='${escapeAttr(JSON.stringify(c.state_updates || {}))}'>`;
+                    html += '<button type="submit" class="btn" style="margin-top:0.3rem;">💾 Save</button>';
+                    html += '</form>';
+                    html += '</div>';
+                    html += '</div>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            // State Updates (on node)
+            if (detail.state_updates && Object.keys(detail.state_updates).length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>State-Updates</h4>';
+                html += `<div class="state-updates-box">${JSON.stringify(detail.state_updates, null, 2)}</div>`;
+                html += '</div>';
+            }
+
+            // Quality notes
+            if (detail.quality_notes && detail.quality_notes.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>Quality Notes</h4>';
+                html += '<ul style="list-style: disc; padding-left: 1.5rem; font-size: 0.85rem;">';
+                detail.quality_notes.forEach(qn => {
+                    html += `<li>${qn}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            // Review issues (Kritiker-Kommentare)
+            if (detail.review_issues && detail.review_issues.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>⚠️ Kritiker-Kommentare</h4>';
+                detail.review_issues.forEach(issue => {
+                    html += `<div class="review-issue severity-${issue.severity || 'medium'}">`;
+                    html += `<span class="issue-severity">[${(issue.severity || 'medium').toUpperCase()}]</span>`;
+                    html += `<div class="issue-problem">${issue.problem || ''}</div>`;
+                    if (issue.suggestion) {
+                        html += `<div class="issue-suggestion">${issue.suggestion}</div>`;
+                    }
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            // Technical warnings
+            if (detail.tech_warnings && detail.tech_warnings.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>🔧 Technische Warnings</h4>';
+                detail.tech_warnings.forEach(w => {
+                    html += `<div class="tech-warning severity-${w.severity}">`;
+                    html += `<span class="issue-severity">[${w.severity.toUpperCase()}]</span> `;
+                    html += `<span class="warning-msg">${w.message}</span>`;
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            body.innerHTML = html;
+
+            // Open panel
+            document.getElementById('node-detail-panel').classList.add('open');
+            document.getElementById('overlay').classList.add('show');
+        }
+
+        function closeNodeDetail() {
+            document.getElementById('node-detail-panel').classList.remove('open');
+            document.getElementById('overlay').classList.remove('show');
+            document.querySelectorAll('.node-rect').forEach(el => el.classList.remove('selected'));
+        }
+
+        // Close on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeNodeDetail();
+        });
+
+        // ── Incremental editing helpers ──
+
+        function toggleEditForm(nodeId) {
+            const form = document.getElementById(`edit-form-${nodeId}`);
+            if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function toggleChoiceEdit(nodeId, choiceId) {
+            const form = document.getElementById(`choice-edit-${nodeId}-${choiceId}`);
+            if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function deleteNode(nodeId) {
+            if (!confirm(`Delete node '${nodeId}'? This will create a new version.`)) return;
+            try {
+                const resp = await fetch(`/admin/draft/${draftId}/nodes/${nodeId}/delete`, { method: 'POST' });
+                if (resp.ok) {
+                    showToast(`Node '${nodeId}' deleted`, 'success');
+                    closeNodeDetail();
+                    setTimeout(() => location.reload(), 600);
+                } else {
+                    const err = await resp.text();
+                    showToast(`Error: ${err}`, 'error');
+                }
+            } catch(e) { showToast(`Error: ${e.message}`, 'error'); }
+        }
+
+        async function regenerateNode(nodeId) {
+            const instruction = prompt(`Re-generate node '${nodeId}' — enter instruction (optional):`, '');
+            if (instruction === null) return;
+            showToast('Regenerating node…', 'info');
+            try {
+                const formData = new FormData();
+                formData.append('instruction', instruction);
+                const resp = await fetch(`/admin/draft/${draftId}/nodes/${nodeId}/regenerate`, { method: 'POST', body: formData });
+                if (resp.ok) {
+                    showToast(`Node '${nodeId}' re-generated`, 'success');
+                    setTimeout(() => location.reload(), 600);
+                } else {
+                    const err = await resp.text();
+                    showToast(`Error: ${err}`, 'error');
+                }
+            } catch(e) { showToast(`Error: ${e.message}`, 'error'); }
+        }
+
+        function showAddNodeModal() {
+            document.getElementById('add-node-modal').classList.add('show');
+        }
+
+        function closeAddNodeModal() {
+            document.getElementById('add-node-modal').classList.remove('show');
+        }
+
+        // ── AJAX form submission helpers ──
+
+        async function submitEditForm(nodeId) {
+            const formDiv = document.getElementById(`edit-form-${nodeId}`);
+            if (!formDiv) return;
+            const form = formDiv.querySelector('form');
+            if (!form) return;
+            const formData = new FormData(form);
+            showToast('Saving…', 'info');
+            try {
+                const resp = await fetch(form.action, { method: 'POST', body: formData });
+                if (resp.ok) {
+                    showToast('Node saved successfully', 'success');
+                    await refreshNodeDetail(nodeId);
+                } else {
+                    const err = await resp.text();
+                    showToast(`Error: ${err}`, 'error');
+                }
+            } catch(e) { showToast(`Error: ${e.message}`, 'error'); }
+        }
+
+        async function submitChoiceEdit(nodeId, choiceId) {
+            const formDiv = document.getElementById(`choice-edit-${nodeId}-${choiceId}`);
+            if (!formDiv) return;
+            const form = formDiv.querySelector('form');
+            if (!form) return;
+            const formData = new FormData(form);
+            showToast('Saving choice…', 'info');
+            try {
+                const resp = await fetch(form.action, { method: 'POST', body: formData });
+                if (resp.ok) {
+                    showToast('Choice saved successfully', 'success');
+                    await refreshNodeDetail(nodeId);
+                } else {
+                    const err = await resp.text();
+                    showToast(`Error: ${err}`, 'error');
+                }
+            } catch(e) { showToast(`Error: ${e.message}`, 'error'); }
+        }
+
+        async function submitAddNode() {
+            const modal = document.getElementById('add-node-modal');
+            const form = modal.querySelector('form');
+            if (!form) return;
+            const formData = new FormData(form);
+            showToast('Adding node…', 'info');
+            try {
+                const resp = await fetch(form.action, { method: 'POST', body: formData });
+                if (resp.ok) {
+                    showToast('Node added successfully', 'success');
+                    closeAddNodeModal();
+                    setTimeout(() => location.reload(), 600);
+                } else {
+                    const err = await resp.text();
+                    showToast(`Error: ${err}`, 'error');
+                }
+            } catch(e) { showToast(`Error: ${e.message}`, 'error'); }
+        }
+
+        async function refreshNodeDetail(nodeId) {
+            try {
+                const resp = await fetch(`/admin/draft/${draftId}/node/${nodeId}`);
+                if (resp.ok) {
+                    const newDetail = await resp.json();
+                    nodesDetail[nodeId] = newDetail;
+                    showNodeDetail(nodeId);
+                }
+            } catch(e) { /* silent */ }
+        }
+
+        // ── Split Node Modal ──
+        let splitNodeId = null;
+
+        function showSplitModal(nodeId) {
+            splitNodeId = nodeId;
+            const detail = nodesDetail[nodeId];
+            if (!detail) return;
+            // Pre-fill with scene_text or scene_goal
+            const text = detail.scene_text || detail.scene_goal || '';
+            document.getElementById('split-text-area').value = text;
+            document.getElementById('split-positions').value = '';
+            document.getElementById('split-form').action = `/admin/draft/${draftId}/nodes/${nodeId}/split`;
+            document.getElementById('split-modal').classList.add('show');
+        }
+
+        function closeSplitModal() {
+            document.getElementById('split-modal').classList.remove('show');
+            splitNodeId = null;
+        }
+
+        // ── Template Modal ──
+        let templateNodeId = null;
+        let templatesLoaded = false;
+
+        function showTemplateModal(nodeId) {
+            templateNodeId = nodeId;
+            document.getElementById('template-modal').classList.add('show');
+            if (!templatesLoaded) {
+                loadTemplates();
+            }
+        }
+
+        function closeTemplateModal() {
+            document.getElementById('template-modal').classList.remove('show');
+            templateNodeId = null;
+        }
+
+        function loadTemplates() {
+            fetch('/admin/story-templates')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('template-list-container');
+                    if (!data.templates || data.templates.length === 0) {
+                        container.innerHTML = '<p style="color:#666;">Keine Templates verfügbar.</p>';
+                        return;
+                    }
+                    let html = '';
+                    data.templates.forEach(t => {
+                        html += `<div class="template-item" onclick="applyTemplate('${t.id}')">`;
+                        html += `<div class="tpl-name">${escapeHtml(t.name)}</div>`;
+                        html += `<div class="tpl-desc">${escapeHtml(t.description)}</div>`;
+                        html += `<span class="tpl-cat">${t.category}</span>`;
+                        html += '</div>';
+                    });
+                    container.innerHTML = html;
+                    templatesLoaded = true;
+                })
+                .catch(() => {
+                    document.getElementById('template-list-container').innerHTML = '<p style="color:#fca5a5;">Fehler beim Laden der Templates.</p>';
+                });
+        }
+
+        function applyTemplate(templateId) {
+            if (!templateNodeId) return;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/admin/draft/${draftId}/nodes/${templateNodeId}/apply-template`;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'template_id';
+            input.value = templateId;
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        // ── Enhancement Modal ──
+        function showEnhanceModal() {
+            document.getElementById('enhance-modal').classList.add('show');
+        }
+
+        function closeEnhanceModal() {
+            document.getElementById('enhance-modal').classList.remove('show');
+        }
+
+        // Show/hide arc_expansion options based on mode selection
+        document.addEventListener('DOMContentLoaded', function() {
+            var modeSelect = document.getElementById('enhance-mode');
+            if (modeSelect) {
+                modeSelect.addEventListener('change', function() {
+                    var arcOptions = document.getElementById('arc-expansion-options');
+                    if (arcOptions) {
+                        arcOptions.style.display = (this.value === 'arc_expansion') ? 'block' : 'none';
+                    }
+                });
+            }
+        });
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function escapeAttr(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // ── Version history ──
+        function loadVersionHistory() {
+            fetch(`/admin/draft/${draftId}/versions`)
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('version-history');
+                    if (!data.versions || data.versions.length === 0) {
+                        container.innerHTML = '<p style="color: #666;">No versions found.</p>';
+                        return;
+                    }
+                    let html = '';
+                    data.versions.forEach(v => {
+                        html += `<div class="version-item">`;
+                        html += `<span class="version-num">v${v.version_number}</span>`;
+                        html += `<span class="version-by">${v.created_by}</span>`;
+                        html += `<span class="version-notes">${escapeHtml(v.notes || '')}</span>`;
+                        html += `<span class="version-diff"><span class="diff-badge">${v.diff_summary || ''}</span></span>`;
+                        html += `</div>`;
+                    });
+                    container.innerHTML = html;
+                })
+                .catch(() => {
+                    document.getElementById('version-history').innerHTML = '<p style="color: #fca5a5;">Failed to load versions.</p>';
+                });
+        }
+
+        function loadVersionDiff() {
+            const display = document.getElementById('diff-display');
+            display.style.display = 'block';
+            display.innerHTML = '<p style="color: #888;">Loading diff…</p>';
+            fetch(`/admin/draft/${draftId}/diff`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        display.innerHTML = `<p style="color: #fca5a5;">${data.error}</p>`;
+                        return;
+                    }
+                    const diff = data.diff;
+                    let html = `<h4 style="color:#a78bfa;margin-bottom:0.5rem;">Diff: v${data.old_version} → v${data.new_version}</h4>`;
+                    html += `<p style="color:#93c5fd;margin-bottom:0.5rem;">${diff.summary || 'no changes'}</p>`;
+                    if (diff.added_nodes && diff.added_nodes.length > 0) {
+                        html += `<div style="color:#86efac;margin:0.3rem 0;">+ Added nodes: ${diff.added_nodes.join(', ')}</div>`;
+                    }
+                    if (diff.removed_nodes && diff.removed_nodes.length > 0) {
+                        html += `<div style="color:#fca5a5;margin:0.3rem 0;">- Removed nodes: ${diff.removed_nodes.join(', ')}</div>`;
+                    }
+                    if (diff.modified_nodes && diff.modified_nodes.length > 0) {
+                        html += '<div style="color:#fcd34d;margin:0.3rem 0;">~ Modified nodes:</div>';
+                        diff.modified_nodes.forEach(m => {
+                            const fields = m.changes.map(c => c.field).join(', ');
+                            html += `<div style="color:#fcd34d;padding-left:1rem;">${m.node_id}: ${fields}</div>`;
+                        });
+                    }
+                    if (diff.modified_choices && diff.modified_choices.length > 0) {
+                        html += '<div style="color:#fcd34d;margin:0.3rem 0;">~ Modified choices:</div>';
+                        diff.modified_choices.forEach(m => {
+                            const fields = m.changes.map(c => c.field).join(', ');
+                            html += `<div style="color:#fcd34d;padding-left:1rem;">${m.node_id}/${m.choice_id}: ${fields}</div>`;
+                        });
+                    }
+                    if (diff.graph_changes && diff.graph_changes.length > 0) {
+                        html += '<div style="color:#fcd34d;margin:0.3rem 0;">~ Graph changes:</div>';
+                        diff.graph_changes.forEach(c => {
+                            html += `<div style="color:#fcd34d;padding-left:1rem;">${c.field}: ${JSON.stringify(c.old)} → ${JSON.stringify(c.new)}</div>`;
+                        });
+                    }
+                    display.innerHTML = html;
+                })
+                .catch(() => {
+                    display.innerHTML = '<p style="color: #fca5a5;">Failed to load diff.</p>';
+                });
+        }
+
+        // Load version history on page load
+        loadVersionHistory();
+
+        // Event log bar is now handled by the shared component (event_log_bar.js)
+    </script>
+    <script>
+    function confirmDeleteDetail(title) {
+        return confirm('Möchtest du die Story "' + title + '" wirklich löschen?\n\nDies löscht alle Versionen, Reviews, Validierungen und Generation-Jobs. Veröffentlichte Szenarien bleiben erhalten.');
+    }
+    </script>
+</body>
+</html>

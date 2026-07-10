@@ -1,0 +1,209 @@
+/* ═══ Sticky Bottom Event Log Bar — Shared Component (t_e904d515) ═══ */
+/* Dark theme, collapsible, auto-scroll bottom, color-coded by status */
+
+.elb-wrapper {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #1a1a2e;
+    border-top: 2px solid #8b5cf6;
+    z-index: 500;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+    transition: height 0.2s ease;
+}
+
+/* ── Header bar (always visible, click to toggle) ── */
+.elb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 2rem;
+    cursor: pointer;
+    user-select: none;
+    height: 30px;
+}
+.elb-header:hover { background: #222240; }
+.elb-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.elb-header-title {
+    color: #a78bfa;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.elb-header-badge {
+    display: inline-block;
+    background: #8b5cf6;
+    color: #fff;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    font-weight: 700;
+}
+.elb-header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.elb-conn-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+.elb-conn-dot.connected { background: #22c55e; }
+.elb-conn-dot.disconnected { background: #ef4444; }
+.elb-conn-dot.connecting { background: #f59e0b; }
+.elb-conn-text {
+    font-size: 0.75rem;
+    color: #888;
+}
+.elb-toggle {
+    color: #888;
+    font-size: 0.85rem;
+    transition: transform 0.2s;
+}
+.elb-toggle.collapsed { transform: rotate(-90deg); }
+
+/* ── Body (collapsible) ── */
+.elb-body {
+    display: flex;
+    flex-direction: column;
+    height: 150px;
+    overflow: hidden;
+}
+.elb-body.hidden { display: none; }
+
+.elb-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.3rem 2rem;
+    border-bottom: 1px solid #333;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+.elb-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.elb-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.elb-info {
+    font-size: 0.75rem;
+    color: #888;
+}
+.elb-clear-btn {
+    background: #333;
+    color: #ccc;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-family: inherit;
+}
+.elb-clear-btn:hover {
+    background: #dc2626;
+    color: #fff;
+    border-color: #dc2626;
+}
+
+/* ── Log entries list ── */
+.elb-list {
+    overflow-y: auto;
+    flex: 1;
+    padding: 0 2rem;
+}
+.elb-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #111;
+    font-size: 0.75rem;
+}
+.elb-entry:hover { background: #14142a; }
+.elb-entry-time {
+    color: #666;
+    font-family: monospace;
+    min-width: 70px;
+    flex-shrink: 0;
+}
+.elb-entry-cat {
+    font-weight: 600;
+    min-width: 80px;
+    flex-shrink: 0;
+    text-align: center;
+    padding: 0.1rem 0.3rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+}
+.elb-cat-generation { background: #1e3a5f; color: #93c5fd; }
+.elb-cat-review { background: #78350f; color: #fcd34d; }
+.elb-cat-validation { background: #14532d; color: #86efac; }
+.elb-cat-publish { background: #16a34a; color: #fff; }
+.elb-cat-repair { background: #7c2d12; color: #fdba74; }
+.elb-cat-approve { background: #1e3a5f; color: #93c5fd; }
+.elb-cat-enhancement { background: #4c1d95; color: #c4b5fd; }
+.elb-cat-system { background: #334; color: #aab; }
+.elb-cat-info { background: #334; color: #aab; }
+
+.elb-entry-status {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    min-width: 50px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.elb-status-running { background: #1e3a5f; color: #93c5fd; }
+.elb-status-done { background: #14532d; color: #86efac; }
+.elb-status-error { background: #7f1d1d; color: #fca5a5; }
+.elb-status-info { background: #334; color: #aab; }
+
+.elb-entry-msg {
+    color: #ccc;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.elb-entry-detail {
+    color: #8b5cf6;
+    cursor: pointer;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+.elb-entry-detail:hover { color: #a78bfa; }
+.elb-entry-json {
+    display: none;
+    padding: 0.3rem 0;
+    margin: 0.2rem 0;
+    background: #0a0a14;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: #93c5fd;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.elb-entry-json.show { display: block; }
+.elb-empty {
+    text-align: center;
+    padding: 1rem;
+    color: #555;
+    font-size: 0.8rem;
+}
+
+/* ── Body bottom padding to prevent overlap with sticky bar ── */
+body.elb-active { padding-bottom: 180px; }

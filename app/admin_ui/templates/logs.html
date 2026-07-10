@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs — Infinity Story Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; }
+        .header { background: #1a1a2e; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #8b5cf6; font-size: 1.3rem; }
+        .header a { color: #a78bfa; text-decoration: none; font-size: 0.85rem; }
+        .mock-banner { background: #7c2d12; color: #fdba74; padding: 0.75rem 2rem; text-align: center; font-size: 0.9rem; border-bottom: 1px solid #9a3412; }
+        .mock-banner strong { color: #fbbf24; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem; }
+
+        .toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+        .toolbar button, .toolbar select, .filter-btn { padding: 0.4rem 0.8rem; background: #1a1a2e; border: 1px solid #333; border-radius: 6px; color: #e0e0e0; cursor: pointer; font-size: 0.85rem; font-family: inherit; }
+        .toolbar button:hover, .filter-btn:hover { border-color: #8b5cf6; }
+        .filter-btn.active { border-color: #8b5cf6; background: #2a2a4e; }
+        .toolbar select:focus { outline: none; border-color: #8b5cf6; }
+        .toolbar .auto-toggle { display: flex; align-items: center; gap: 0.4rem; }
+        .toolbar .auto-toggle input { width: 1.1rem; height: 1.1rem; accent-color: #8b5cf6; }
+        .toolbar .auto-toggle label { font-size: 0.85rem; color: #888; cursor: pointer; }
+        .toolbar .spacer { flex: 1; }
+        .toolbar .count { font-size: 0.8rem; color: #666; }
+
+        .log-list { display: flex; flex-direction: column; gap: 0.3rem; }
+        .log-entry { display: grid; grid-template-columns: 90px 90px 100px 1fr auto; gap: 0.75rem; padding: 0.6rem 1rem; background: #1a1a2e; border-radius: 6px; border-left: 3px solid #333; font-size: 0.85rem; align-items: center; }
+        .log-entry:hover { background: #20203a; }
+        .log-entry.status-running { border-left-color: #3b82f6; }
+        .log-entry.status-done { border-left-color: #22c55e; }
+        .log-entry.status-error { border-left-color: #ef4444; }
+        .log-entry.status-info { border-left-color: #6366f1; }
+
+        .log-time { color: #666; font-family: monospace; font-size: 0.78rem; }
+        .log-category { padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.72rem; font-weight: 600; text-align: center; }
+        .cat-generation { background: #1e3a5f; color: #93c5fd; }
+        .cat-review { background: #78350f; color: #fcd34d; }
+        .cat-validation { background: #14532d; color: #86efac; }
+        .cat-publish { background: #16a34a; color: #fff; }
+        .cat-system { background: #334; color: #aab; }
+
+        .log-status { padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.72rem; font-weight: 600; text-align: center; }
+        .status-running-badge { background: #1e3a5f; color: #93c5fd; }
+        .status-done-badge { background: #14532d; color: #86efac; }
+        .status-error-badge { background: #7f1d1d; color: #fca5a5; }
+        .status-info-badge { background: #334; color: #aab; }
+
+        .log-message { color: #e0e0e0; }
+        .log-detail-btn { background: none; border: 1px solid #333; border-radius: 4px; padding: 0.2rem 0.5rem; color: #888; cursor: pointer; font-size: 0.75rem; font-family: inherit; }
+        .log-detail-btn:hover { color: #a78bfa; border-color: #8b5cf6; }
+
+        .log-detail-row { display: none; grid-column: 1 / -1; padding: 0.5rem; background: #0a0a14; border-radius: 4px; margin-top: 0.3rem; }
+        .log-detail-row.show { display: block; }
+        .log-detail-json { font-family: monospace; font-size: 0.78rem; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
+
+        .empty { text-align: center; padding: 3rem; color: #666; }
+
+        @media (max-width: 700px) {
+            .log-entry { grid-template-columns: 1fr; gap: 0.3rem; }
+            .log-time, .log-category, .log-status { font-size: 0.7rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 <a href="/admin/">Infinity Story Admin</a> → Logs</h1>
+        <a href="/admin/">← Zurück</a>
+    </div>
+    {% if is_mock_mode %}
+    <div class="mock-banner">
+        ⚠️ <strong>Mock-Modus aktiv</strong> — LLM_PROVIDER=mock.
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <div class="toolbar">
+            <select id="filter-category" onchange="loadEvents()">
+                <option value="">Alle Kategorien</option>
+                <option value="generation">Generation</option>
+                <option value="review">Review</option>
+                <option value="validation">Validation</option>
+                <option value="publish">Publish</option>
+                <option value="system">System</option>
+            </select>
+            <button class="filter-btn" onclick="loadEvents()">⟳ Aktualisieren</button>
+            <div class="auto-toggle">
+                <input type="checkbox" id="auto-refresh" checked>
+                <label for="auto-refresh">Auto-Refresh (3s)</label>
+            </div>
+            <div class="spacer"></div>
+            <span class="count" id="count">0 Events</span>
+        </div>
+
+        <div class="log-list" id="log-list">
+            <div class="empty">Lade Events...</div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const logList = document.getElementById('log-list');
+        const countEl = document.getElementById('count');
+        const filterEl = document.getElementById('filter-category');
+        const autoEl = document.getElementById('auto-refresh');
+        let autoTimer = null;
+        let sseSource = null;
+
+        function fmtTime(ts) {
+            const d = new Date(ts * 1000);
+            return d.toLocaleTimeString('de-DE', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+        }
+
+        function esc(s) {
+            if (s == null) return '';
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderEvents(events) {
+            countEl.textContent = events.length + ' Events';
+            if (events.length === 0) {
+                logList.innerHTML = '<div class="empty">Keine Events vorhanden. Erstelle eine Story oder führe Review/Validation aus um Events zu sehen.</div>';
+                return;
+            }
+            let html = '';
+            events.forEach(function(e, i) {
+                html += '<div class="log-entry status-' + esc(e.status) + '">';
+                html += '<span class="log-time">' + fmtTime(e.timestamp) + '</span>';
+                html += '<span class="log-category cat-' + esc(e.category) + '">' + esc(e.category) + '</span>';
+                html += '<span class="log-status status-' + esc(e.status) + '-badge">' + esc(e.status) + '</span>';
+                html += '<span class="log-message">' + esc(e.message) + '</span>';
+                if (e.detail && Object.keys(e.detail).length > 0) {
+                    html += '<button class="log-detail-btn" onclick="toggleDetail(' + i + ')">Detail</button>';
+                    html += '<div class="log-detail-row" id="detail-' + i + '"><pre class="log-detail-json">' + esc(JSON.stringify(e.detail, null, 2)) + '</pre></div>';
+                } else {
+                    html += '<span></span>';
+                }
+                html += '</div>';
+            });
+            logList.innerHTML = html;
+        }
+
+        async function loadEvents() {
+            const cat = filterEl.value;
+            const url = '/admin/api/events?limit=100' + (cat ? '&category=' + cat : '');
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                renderEvents(data.events || []);
+            } catch(err) {
+                logList.innerHTML = '<div class="empty">Fehler beim Laden: ' + esc(err.message) + '</div>';
+            }
+        }
+
+        // SSE live streaming via /admin/api/events/live
+        function connectSSE() {
+            if (sseSource) sseSource.close();
+            const cat = filterEl.value;
+            const url = '/admin/api/events/live' + (cat ? '?category=' + cat : '');
+            try {
+                sseSource = new EventSource(url);
+                sseSource.onmessage = function(ev) {
+                    try {
+                        JSON.parse(ev.data);
+                        loadEvents(); // reload to get sorted view
+                    } catch(err) {}
+                };
+                sseSource.onerror = function() {
+                    // SSE will auto-reconnect; just log silently
+                };
+            } catch(e) {
+                // EventSource not supported — fall back to polling only
+            }
+        }
+
+        window.toggleDetail = function(i) {
+            const el = document.getElementById('detail-' + i);
+            if (el) el.classList.toggle('show');
+        };
+
+        function setupAutoRefresh() {
+            if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+            if (autoEl.checked) {
+                autoTimer = setInterval(loadEvents, 3000);
+                connectSSE();
+            } else if (sseSource) {
+                sseSource.close();
+                sseSource = null;
+            }
+        }
+
+        autoEl.addEventListener('change', setupAutoRefresh);
+        filterEl.addEventListener('change', function() { loadEvents(); if (sseSource) connectSSE(); });
+        loadEvents();
+        setupAutoRefresh();
+    })();
+    </script>
+
+    <!-- ═══ Sticky Bottom Event Log Bar (t_e904d515) — shared component ═══ -->
+    <link rel="stylesheet" href="/admin/static/event_log_bar.css">
+    <div id="elb-container"></div>
+    <script src="/admin/static/event_log_bar.js"></script>
+</body>
+</html>

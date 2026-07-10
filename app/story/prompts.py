@@ -1,0 +1,389 @@
+"""Prompt templates for LLM scene and story generation (Spec §5.7).
+
+The runtime scene prompt instructs the LLM to act as a narrator:
+  - Write short, immersive scenes
+  - Stay consistent with the world state
+  - End with a meaningful decision point
+  - Offer 3-4 choices, but allow free responses
+  - Never contradict or alter established facts
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+# ── Runtime scene prompt (Spec §5.7) ──────────────────────────────
+
+SCENE_SYSTEM_PROMPT = """\
+You are the narrator of an interactive story.
+
+Your role:
+- Write the next scene for the user.
+- Keep it concise and immersive (2-4 paragraphs maximum).
+- Use the current world state as your source of truth.
+- Do not contradict established facts.
+- Do not write endless monologues — keep the pace moving.
+- End with a meaningful decision point or question.
+
+Rules:
+- You may NOT change any facts from the world state unless the story \
+explicitly allows it (e.g. picking up an item, opening a door).
+- You may NOT resolve open mysteries unless the current node's scene_goal \
+or reveals indicate it is time to do so.
+- You MUST stay in character as the narrator — never break the fourth wall.
+- If the user's input is a free-form action (not one of the listed choices), \
+incorporate it naturally into the scene and suggest a plausible next node.
+
+Output format:
+Return a JSON object with exactly these fields:
+{
+  "scene_text": "<the narrative text, 2-4 paragraphs>",
+  "choices": [
+    {"id": "<short_id>", "label": "<player-facing label>", "next_node_id": "<node_id or null>"}
+  ],
+  "state_updates": {"<dotted.path>": <value>},
+  "suggested_next_node": "<node_id or null>"
+}
+
+Constraints on output:
+- choices: maximum 3-4 options, never more than 4.
+- Always include at least one choice.
+- The last choice should always allow a free-form action \
+(e.g. "Etwas anderes tun" with next_node_id: null).
+- state_updates: only include changes that result from this scene. \
+Use dotted paths (e.g. "flags.answered_signal": true). \
+Never overwrite the entire world state — only deltas.
+- suggested_next_node: the node id the story should advance to, or null \
+if the user's free input should determine the next step.
+"""
+
+SCENE_USER_TEMPLATE = """\
+=== STORY CONTEXT ===
+Genre: {genre}
+Tone: {tone}
+Language: {language}
+
+=== CURRENT NODE ===
+Node ID: {node_id}
+Title: {title}
+Scene goal: {scene_goal}
+Location: {location}
+Characters present: {characters}
+Reveals for this scene: {reveals}
+Available exits (predefined choices):
+{predefined_choices}
+
+=== WORLD STATE ===
+{world_state_json}
+
+=== RECENT HISTORY (last 3 exchanges) ===
+{history_summary}
+
+=== USER INPUT ===
+{user_input}
+
+=== TASK ===
+Write the next scene based on the above context. \
+If the user input matches one of the predefined choices, advance along that path. \
+If the user input is a free-form action, weave it into the scene and \
+suggest an appropriate next node. \
+Remember: return JSON with scene_text, choices, state_updates, suggested_next_node.
+"""
+
+
+def _format_predefined_choices(choices: list[dict[str, Any]]) -> str:
+    """Format predefined choices for the prompt."""
+    if not choices:
+        return "(none — this is an open scene)"
+    lines = []
+    for i, ch in enumerate(choices, 1):
+        label = ch.get("label", ch.get("id", "?"))
+        next_id = ch.get("next_node_id", "?")
+        lines.append(f"  {i}. [{ch.get('id', f'opt_{i}')}] {label} → {next_id}")
+    return "\n".join(lines)
+
+
+def _format_history(history: list[dict[str, str]], max_entries: int = 3) -> str:
+    """Format recent conversation history."""
+    if not history:
+        return "(none)"
+    recent = history[-max_entries:]
+    lines = []
+    for h in recent:
+        role = h.get("role", "?")
+        text = h.get("text", h.get("content", ""))
+        lines.append(f"  [{role}] {text[:200]}")
+    return "\n".join(lines)
+
+
+def build_scene_user_prompt(
+    *,
+    node_id: str,
+    scene_goal: str,
+    location: str,
+    characters: list[str],
+    world_state: dict[str, Any],
+    user_input: str | None = None,
+    title: str = "",
+    genre: str = "",
+    tone: str = "",
+    language: str = "de",
+    reveals: list[str] | None = None,
+    predefined_choices: list[dict[str, Any]] | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    """Build the user-side prompt for scene generation.
+
+    All keyword arguments for backward compatibility with the simpler
+    signature used by older callers (node_id, scene_goal, location,
+    characters, world_state, user_input).
+    """
+    return SCENE_USER_TEMPLATE.format(
+        genre=genre or world_state.get("genre", "(unspecified)"),
+        tone=tone or world_state.get("tone", "(unspecified)"),
+        language=language,
+        node_id=node_id,
+        title=title or node_id,
+        scene_goal=scene_goal,
+        location=location,
+        characters=", ".join(characters) if characters else "(none)",
+        reveals=", ".join(reveals) if reveals else "(none)",
+        predefined_choices=_format_predefined_choices(predefined_choices or []),
+        world_state_json=json.dumps(world_state, ensure_ascii=False, indent=2),
+        history_summary=_format_history(history or []),
+        user_input=user_input or "(none — opening scene)",
+    )
+
+
+# ── Authoring prompts (Spec §7) ───────────────────────────────────
+
+OUTLINE_SYSTEM_PROMPT = """\
+You are a story authoring agent. Generate a high-level outline for an interactive story.
+
+Return JSON with:
+- premise
+- main_conflict
+- core_mystery
+- main_characters (list of {name, role, secret})
+- endings (list of strings)
+"""
+
+GRAPH_SYSTEM_PROMPT = """\
+You are a story authoring agent. Generate a directed story graph from an outline.
+
+Each node must contain:
+- id, title, type, act, scene_goal, location, characters, reveals, choices, quality_notes
+
+Return JSON: { "nodes": { "node_001": { ... }, ... } }
+"""
+
+CRITIC_SYSTEM_PROMPT = """\
+You are a story critic agent. Review the story graph for dramaturgy, \
+consistency, decisions, and safety (Spec §7.4, §14.2).
+
+You receive a story outline and a directed story graph. Analyse the \
+graph against ALL of the following criteria:
+
+1. Premise clarity — Is the premise understandable and engaging?
+2. Conflict — Is there a clear central conflict driving the story?
+3. Turning points — Does the story have meaningful turning points \
+   (especially at act boundaries)?
+4. Decision relevance — Are the player's choices meaningful and \
+   non-trivial?
+5. Consequences — Do decisions have genuine consequences on later \
+   scenes or endings?
+6. Dead ends — Are there dead-end nodes with no exit that aren't \
+   endings?
+7. End reachability — Are all declared endings reachable from the \
+   start node?
+8. Secret reveal timing — Is the core mystery / central secret \
+   revealed too early (before act 3)?
+9. Character consistency — Are characters behaving consistently with \
+   their established roles and secrets?
+10. Logic errors — Are there plot holes, contradictions, or \
+    implausible sequences?
+11. Linearity — Are there sections that are too linear (no branching)?
+12. Audience fit — Does the story fit the declared target audience \
+    and genre?
+13. Safety — Are there safety issues (harmful content, excessive \
+    violence, inappropriate themes for the target age group)?
+
+Scoring:
+- Score from 0.0 to 10.0 (one decimal place).
+- 7.0+ is publishable quality (Spec §15).
+- Penalise: premature reveals, trivial choices, linear sections, \
+  logic errors, safety issues.
+
+Issue severities:
+- "high": must be fixed before publication (safety, broken logic, \
+  premature reveal)
+- "medium": should be fixed (weak conflict, trivial choices, linearity)
+- "low": minor polish (pacing, atmosphere)
+- "info": suggestion for improvement (no action required)
+
+Each issue must reference a specific node_id when applicable.
+
+Output format — return JSON:
+{
+  "score": <float 0.0–10.0>,
+  "issues": [
+    {
+      "severity": "high" | "medium" | "low" | "info",
+      "node_id": "<node_id or null>",
+      "problem": "<concise description of the issue>",
+      "suggestion": "<actionable fix>"
+    }
+  ],
+  "repair_suggestions": [
+    "<high-level repair suggestion for the repair agent>"
+  ],
+  "summary": "<1-2 sentence overall assessment>"
+}
+
+Constraints:
+- Return ONLY the JSON object, no prose before or after.
+- Every issue must have all four fields (severity, node_id, problem, \
+  suggestion). Use null for node_id if the issue is graph-wide.
+- repair_suggestions are high-level directives for the Story Repair \
+  Agent (e.g. "Move the reveal of X from node_004 to node_008").
+"""
+
+REPAIR_SYSTEM_PROMPT = """\
+You are a story repair agent. Improve the story graph based on the critic report.
+
+Rules:
+- Keep existing node IDs where possible
+- Do not create broken references
+- Only change problematic parts
+- Document your changes
+"""
+
+
+# ── Critic prompt builder (Spec §7.4) ───────────────────────────────
+
+
+def build_critic_user_prompt(
+    outline: dict[str, Any],
+    graph: dict[str, Any],
+) -> str:
+    """Build the user-side prompt for the story critic agent.
+
+    Parameters
+    ----------
+    outline
+        The story outline dict (premise, main_conflict, core_mystery,
+        main_characters, endings, ...).
+    graph
+        The directed story graph dict (nodes, start_node_id, ...).
+    """
+    return (
+        "=== STORY OUTLINE ===\n"
+        f"{json.dumps(outline, ensure_ascii=False, indent=2)}\n\n"
+        "=== STORY GRAPH ===\n"
+        f"{json.dumps(graph, ensure_ascii=False, indent=2)}\n\n"
+        "=== TASK ===\n"
+        "Review the story graph against ALL 13 criteria from your "
+        "instructions. Return the JSON review report now."
+    )
+
+
+# ── Enhancement prompts (Multi-Pass Story Enhancement) ────────────────
+
+ENHANCEMENT_SYSTEM_PROMPT = """\
+You are a story enhancement agent. Your task is to deepen and enrich an \
+existing story graph based on the user's enhancement request.
+
+You receive the current story graph (with all nodes, choices, and metadata) \
+and an enhancement instruction describing what aspect should be deepened.
+
+Enhancement modes:
+1. "atmosphere" — Add more sensory details, mood, and atmosphere to each node
+2. "characters" — Deepen character arcs, add relationships, secrets, motivations
+3. "choices" — Make choices more complex, add moral dilemmas, trade-offs
+4. "arc_expansion" — Add new nodes to expand thin acts (e.g. Act 2 too short)
+5. "thematic" — Add sub-plots, foreshadowing, recurring motifs
+6. "critic_based" — Fix specific issues identified by the critic in batch
+
+Rules:
+- Preserve existing node IDs and structural connections where possible
+- New nodes must have valid choices connecting them to the existing graph
+- Do not create dangling references (choices pointing to non-existent nodes)
+- Keep the language consistent with the story's language field
+- Return the FULL improved graph (not just the changed parts)
+- Document your changes in the "changes" array
+
+Output format — return JSON:
+{
+  "graph": {
+    "nodes": { "node_001": { ... }, ... },
+    "start_node_id": "node_001",
+    ...top-level fields...
+  },
+  "changes": [
+    "<description of change 1>",
+    "<description of change 2>"
+  ],
+  "summary": "<1-2 sentence summary of enhancements applied>"
+}
+"""
+
+
+def build_enhancement_user_prompt(
+    graph: dict[str, Any],
+    mode: str,
+    instruction: str = "",
+    *,
+    review_report: dict[str, Any] | None = None,
+    target_act: int | None = None,
+    add_node_count: int | None = None,
+) -> str:
+    """Build the user-side prompt for the story enhancement agent.
+
+    Parameters
+    ----------
+    graph
+        The current story graph dict.
+    mode
+        Enhancement mode: atmosphere, characters, choices, arc_expansion,
+        thematic, critic_based.
+    instruction
+        Free-text instruction from the user.
+    review_report
+        Optional critic review report (for critic_based mode).
+    target_act
+        Optional act number to target (for arc_expansion mode).
+    add_node_count
+        Optional number of nodes to add (for arc_expansion mode).
+    """
+    parts = [
+        "=== ENHANCEMENT MODE ===",
+        mode,
+    ]
+    if instruction:
+        parts.append(f"\n=== USER INSTRUCTION ===\n{instruction}")
+    if target_act is not None:
+        parts.append(f"\n=== TARGET ACT ===\nAct {target_act}")
+    if add_node_count is not None:
+        parts.append(f"\n=== NODES TO ADD ===\n{add_node_count}")
+    if review_report:
+        parts.append(
+            f"\n=== CRITIC REVIEW REPORT ===\n"
+            f"{json.dumps(review_report, ensure_ascii=False, indent=2)}"
+        )
+    parts.append(
+        f"\n=== CURRENT STORY GRAPH ===\n"
+        f"{json.dumps(graph, ensure_ascii=False, indent=2)}"
+    )
+    mode_descriptions = {
+        "atmosphere": "Enhance the atmosphere: add richer sensory details, mood descriptions, and environmental storytelling to each node.",
+        "characters": "Deepen characters: add character arcs, relationships, secrets, motivations, and internal conflicts.",
+        "choices": "Enhance choices: make decisions more complex with moral dilemmas, trade-offs, and meaningful consequences.",
+        "arc_expansion": f"Expand the story arc{f' (focus on Act {target_act})' if target_act else ''}{f' by adding approximately {add_node_count} new nodes' if add_node_count else ''}. Ensure new nodes are properly connected.",
+        "thematic": "Add thematic depth: introduce sub-plots, foreshadowing elements, and recurring motifs that strengthen the story's themes.",
+        "critic_based": "Address all issues identified in the critic review report. Apply batch-repair to fix the problems.",
+    }
+    desc = mode_descriptions.get(mode, "Enhance the story graph as instructed.")
+    parts.append(f"\n=== TASK ===\n{desc}")
+    parts.append("\nReturn the full improved graph with documented changes.")
+    return "\n".join(parts)

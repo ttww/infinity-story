@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinity Story — Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+
+        /* ── Header ── */
+        .header { background: #1a1a2e; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #8b5cf6; font-size: 1.3rem; }
+        .header .nav { display: flex; gap: 1rem; align-items: center; }
+        .header a { color: #a78bfa; text-decoration: none; font-size: 0.85rem; }
+        .header a:hover { color: #c4b5fd; }
+
+        /* ── Layout ── */
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+        /* ── Hero Section ── */
+        .hero { text-align: center; padding: 3rem 1rem 2rem; }
+        .hero h2 { color: #e0e0e0; font-size: 2.2rem; margin-bottom: 0.5rem; }
+        .hero p { color: #888; font-size: 1rem; margin-bottom: 2rem; }
+        .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+
+        /* ── Buttons (same palette as Admin) ── */
+        .btn { display: inline-block; padding: 0.6rem 1.5rem; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 0.9rem; font-weight: 600; transition: background 0.2s; }
+        .btn-primary { background: #8b5cf6; color: #fff; }
+        .btn-primary:hover { background: #7c3aed; }
+        .btn-secondary { background: #333; color: #e0e0e0; }
+        .btn-secondary:hover { background: #444; }
+        .btn-success { background: #16a34a; color: #fff; }
+        .btn-success:hover { background: #15803d; }
+        .btn-sm { padding: 0.3rem 0.8rem; font-size: 0.8rem; }
+
+        /* ── Stats Cards ── */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin: 2rem 0; }
+        .stat-card { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 1.5rem; text-align: center; }
+        .stat-card .stat-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .stat-card .stat-value { font-size: 2.5rem; font-weight: 700; color: #8b5cf6; }
+        .stat-card .stat-label { color: #888; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem; }
+
+        /* ── Section Headings ── */
+        .section { margin-top: 2.5rem; }
+        .section h3 { color: #8b5cf6; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; border-bottom: 1px solid #333; padding-bottom: 0.5rem; }
+
+        /* ── Scenario Cards ── */
+        .scenarios-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+        .scenario-card { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; transition: border-color 0.2s; }
+        .scenario-card:hover { border-color: #8b5cf6; }
+        .scenario-card .scenario-title { font-size: 1.1rem; font-weight: 600; color: #e0e0e0; }
+        .scenario-card .scenario-genre { color: #a78bfa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        .scenario-card .scenario-id { color: #555; font-size: 0.75rem; font-family: monospace; }
+        .scenario-card .scenario-actions { margin-top: auto; padding-top: 0.5rem; }
+
+        /* ── Empty State ── */
+        .empty { text-align: center; padding: 2.5rem; color: #666; }
+        .empty p { margin-bottom: 1rem; }
+
+        /* ── Footer ── */
+        .footer { text-align: center; padding: 2rem; color: #555; font-size: 0.8rem; border-top: 1px solid #222; margin-top: 2rem; }
+        .footer a { color: #a78bfa; text-decoration: none; }
+        .mock-banner { background: #7c2d12; color: #fdba74; padding: 0.75rem 2rem; text-align: center; font-size: 0.9rem; border-bottom: 1px solid #9a3412; }
+        .mock-banner strong { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 Infinity Story</h1>
+        <div class="nav">
+            <a href="/admin/">⚙️ Admin</a>
+            <a href="/docs/">📚 API Docs</a>
+        </div>
+    </div>
+    {% if is_mock_mode %}
+    <div class="mock-banner">
+        ⚠️ <strong>Mock-Modus aktiv</strong> — LLM_PROVIDER=mock. Story-Generierung und Szenen-Texte sind statische Platzhalter. Konfiguriere einen echten LLM-Provider für echte KI-generierte Inhalte.
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <!-- ── Hero ── -->
+        <div class="hero">
+            <h2>Interaktive Geschichten erleben & erstellen</h2>
+            <p>WhatsApp-basiertes LLM-Story-System — tauche ein in verzweigte Narrative.</p>
+            <div class="hero-actions">
+                <a href="/chat/" class="btn btn-primary">🎮 Story spielen</a>
+                <a href="/admin/" class="btn btn-secondary">✍️ Story erstellen</a>
+            </div>
+        </div>
+
+        <!-- ── Statistics ── -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">📝</div>
+                <div class="stat-value">{{ stats.drafts }}</div>
+                <div class="stat-label">Drafts</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🚀</div>
+                <div class="stat-value">{{ stats.published }}</div>
+                <div class="stat-label">Veröffentlichte Szenarien</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">💬</div>
+                <div class="stat-value">{{ stats.active_sessions }}</div>
+                <div class="stat-label">Aktive Sessions</div>
+            </div>
+        </div>
+
+        <!-- ── Published Scenarios ── -->
+        <div class="section">
+            <h3>Verfügbare Szenarien</h3>
+            {% if scenarios %}
+            <div class="scenarios-grid">
+                {% for s in scenarios %}
+                <div class="scenario-card">
+                    <div class="scenario-title">{{ s.title }}</div>
+                    <div class="scenario-genre">{{ s.genre or '—' }}</div>
+                    <div class="scenario-id">ID: {{ s.id }}</div>
+                    <div class="scenario-actions">
+                        <a href="/chat/?scenario={{ s.id }}" class="btn btn-success btn-sm">▶ Spielen</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty">
+                <p>🎬 Noch keine Szenarien veröffentlicht.</p>
+                <a href="/admin/" class="btn btn-secondary">Erste Story erstellen →</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Infinity Story v0.1.0 · <a href="/health">Health</a> · <a href="/docs">API Docs</a></p>
+    </div>
+</body>
+</html>

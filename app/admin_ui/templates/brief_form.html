@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Neue Story — Infinity Story Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; }
+        .header { background: #1a1a2e; padding: 1rem 2rem; border-bottom: 1px solid #333; }
+        .header h1 { color: #8b5cf6; font-size: 1.3rem; }
+        .header a { color: #a78bfa; text-decoration: none; }
+        .container { max-width: 800px; margin: 2rem auto; padding: 0 2rem; }
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; color: #a78bfa; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+        input, select, textarea { width: 100%; padding: 0.75rem; background: #1a1a2e; border: 1px solid #333; border-radius: 6px; color: #e0e0e0; font-size: 1rem; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #8b5cf6; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; background: #8b5cf6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+        .btn:hover { background: #7c3aed; }
+        .hint { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+        .mock-banner { background: #7c2d12; color: #fdba74; padding: 0.75rem 2rem; text-align: center; font-size: 0.9rem; border-bottom: 1px solid #9a3412; }
+        .mock-banner strong { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 <a href="/admin/">Infinity Story Admin</a> → Neue Story</h1>
+    </div>
+    {% if is_mock_mode %}
+    <div class="mock-banner">
+        ⚠️ <strong>Mock-Modus aktiv</strong> — LLM_PROVIDER=mock. Stories werden mit statischen Beispiel-Daten generiert, nicht mit echten LLM-Ausgaben. Konfiguriere einen echten LLM-Provider für echte Inhalte.
+    </div>
+    {% endif %}
+    <div class="container">
+        <form method="POST" action="/admin/new">
+            <div class="form-group">
+                <label for="title">Titel</label>
+                <input type="text" id="title" name="title" placeholder="z.B. Signal von Helios" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="genre">Genre</label>
+                    <select id="genre" name="genre">
+                        <option value="science_fiction">Science Fiction</option>
+                        <option value="mystery">Mystery</option>
+                        <option value="fantasy">Fantasy</option>
+                        <option value="love_story">Love Story</option>
+                        <option value="horror">Horror</option>
+                        <option value="thriller">Thriller</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tone">Stimmung</label>
+                    <select id="tone" name="tone">
+                        <option value="dark_mystery">Düsteres Geheimnis</option>
+                        <option value="dark">Düster</option>
+                        <option value="humorous">Humorvoll</option>
+                        <option value="suspenseful">Spannend</option>
+                        <option value="whimsical">Verspielt</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="language">Sprache</label>
+                    <select id="language" name="language">
+                        <option value="de">Deutsch</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="target_age">Zielalter</label>
+                    <select id="target_age" name="target_age">
+                        <option value="12+">12+</option>
+                        <option value="16+" selected>16+</option>
+                        <option value="18+">18+</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="node_count">Anzahl Knoten</label>
+                    <input type="number" id="node_count" name="node_count" value="25" min="5" max="100">
+                </div>
+                <div class="form-group">
+                    <label for="ending_count">Anzahl Enden</label>
+                    <input type="number" id="ending_count" name="ending_count" value="3" min="1" max="10">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="branching_level">Verzweigung</label>
+                    <select id="branching_level" name="branching_level">
+                        <option value="low">Niedrig</option>
+                        <option value="medium" selected>Mittel</option>
+                        <option value="high">Hoch</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="themes">Themen (kommagetrennt)</label>
+                <input type="text" id="themes" name="themes" placeholder="z.B. abandoned space station, AI sabotage">
+            </div>
+            <div class="form-group">
+                <label for="forbidden_content">Verbotene Inhalte (kommagetrennt)</label>
+                <input type="text" id="forbidden_content" name="forbidden_content" placeholder="z.B. explicit sexual content, graphic torture">
+            </div>
+            <div class="form-group">
+                <label for="notes">Notizen</label>
+                <textarea id="notes" name="notes" rows="3" placeholder="Optionale Notizen für die Story-Generierung"></textarea>
+            </div>
+            <button type="submit" class="btn">📝 Story Draft generieren</button>
+        </form>
+    </div>
+
+    <!-- ═══ Sticky Bottom Event Log Bar (t_e904d515) — shared component ═══ -->
+    <link rel="stylesheet" href="/admin/static/event_log_bar.css">
+    <div id="elb-container"></div>
+    <script src="/admin/static/event_log_bar.js"></script>
+</body>
+</html>

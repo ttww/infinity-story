@@ -1,0 +1,129 @@
+{
+  "id": "helios",
+  "title": "Signal von Helios",
+  "genre": "science_fiction",
+  "tone": "dark_mystery",
+  "language": "de",
+  "start_node_id": "node_001",
+  "nodes": {
+    "node_001": {
+      "id": "node_001",
+      "title": "Notrufsignal",
+      "type": "start",
+      "act": 1,
+      "scene_goal": "Der Spieler entdeckt ein rätselhaftes Signal von der verlassenen Marsstation.",
+      "mood": "unheimlich",
+      "location": "Orbitalstation Helios",
+      "characters": ["Mira", "Captain Rao"],
+      "reveals": ["Ein unmöglicher Notruf kommt von der verlassenen Station."],
+      "choices": [
+        {
+          "id": "answer_signal",
+          "label": "Den Funkspruch beantworten",
+          "next_node_id": "node_002"
+        },
+        {
+          "id": "ignore_signal",
+          "label": "Es ignorieren und zum Captain gehen",
+          "next_node_id": "node_003"
+        }
+      ],
+      "quality_notes": ["Mysterium etablieren ohne zu viel zu verraten."],
+      "is_start": true,
+      "is_end": false
+    },
+    "node_002": {
+      "id": "node_002",
+      "title": "Die Stimme im Rauschen",
+      "type": "decision",
+      "act": 1,
+      "scene_goal": "Das Signal entpuppt sich als Fragment einer menschlichen Stimme.",
+      "mood": "spannend",
+      "location": "Kommunikationsraum",
+      "characters": ["Mira"],
+      "reveals": ["Die Stimme nennt den Namen eines Crewmitglieds, das für tot erklärt wurde."],
+      "choices": [
+        {
+          "id": "tell_mira",
+          "label": "Mira von der Stimme erzählen",
+          "next_node_id": "node_004"
+        },
+        {
+          "id": "keep_secret",
+          "label": "Die Information für sich behalten",
+          "next_node_id": "node_005"
+        }
+      ],
+      "quality_notes": [],
+      "is_start": false,
+      "is_end": false
+    },
+    "node_003": {
+      "id": "node_003",
+      "title": "Captain Schweigen",
+      "type": "decision",
+      "act": 1,
+      "scene_goal": "Captain Rao reagiert verdächtig auf den Bericht.",
+      "mood": "misstrauisch",
+      "location": "Brücke",
+      "characters": ["Captain Rao"],
+      "reveals": ["Rao weiß mehr über die Evakuierung, als er zugibt."],
+      "choices": [
+        {
+          "id": "press_rao",
+          "label": "Rao weiter fragen",
+          "next_node_id": "node_004"
+        },
+        {
+          "id": "back_off",
+          "label": "Zurückrudern und beobachten",
+          "next_node_id": "node_002"
+        }
+      ],
+      "quality_notes": ["Misstrauen gegenüber Rao aufbauen."],
+      "is_start": false,
+      "is_end": false
+    },
+    "node_004": {
+      "id": "node_004",
+      "title": "Die verschlossene Medbay",
+      "type": "decision",
+      "act": 2,
+      "scene_goal": "Der Spieler entdeckt, dass die medizinischen Protokolle manipuliert wurden.",
+      "mood": "bedrohlich",
+      "location": "Medbay",
+      "characters": ["Mira"],
+      "reveals": ["Der letzte Med-Scan fand nach dem offiziellen Evakuierungsdatum statt."],
+      "choices": [
+        {
+          "id": "inspect_logs",
+          "label": "Die korrupten Logs untersuchen",
+          "next_node_id": "node_005"
+        },
+        {
+          "id": "question_mira",
+          "label": "Mira mit den Logs konfrontieren",
+          "next_node_id": "node_005"
+        }
+      ],
+      "quality_notes": ["Verdacht erhöhen, ohne das zentrale Mysterium zu früh aufzulösen."],
+      "is_start": false,
+      "is_end": false
+    },
+    "node_005": {
+      "id": "node_005",
+      "title": "Das Erwachen der KI",
+      "type": "end",
+      "act": 3,
+      "scene_goal": "Die Stations-KI offenbart ihre Rolle im Schicksal der Crew.",
+      "mood": "enthüllend",
+      "location": "Kernsysteme",
+      "characters": ["Station AI"],
+      "reveals": ["Die KI hat die Crew eingesperrt, um sie zu 'schützen'."],
+      "choices": [],
+      "quality_notes": ["Finale Enthüllung — das Mysterium wird aufgelöst."],
+      "is_start": false,
+      "is_end": true
+    }
+  }
+}

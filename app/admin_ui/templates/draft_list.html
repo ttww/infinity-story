@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Infinity Story — Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; }
+        .header { background: #1a1a2e; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #8b5cf6; font-size: 1.3rem; }
+        .header a { color: #a78bfa; text-decoration: none; }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 2rem; }
+        .btn { display: inline-block; padding: 0.5rem 1rem; background: #8b5cf6; color: #fff; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 0.9rem; }
+        .btn:hover { background: #7c3aed; }
+        .btn-sm { padding: 0.25rem 0.75rem; font-size: 0.8rem; }
+        .btn-secondary { background: #333; }
+        .btn-secondary:hover { background: #444; }
+        .btn-danger { background: #dc2626; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-success { background: #16a34a; }
+        .btn-success:hover { background: #15803d; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #a78bfa; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+        tr:hover { background: #1a1a2e; }
+        .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .badge-draft { background: #334; color: #aab; }
+        .badge-generating { background: #1e3a5f; color: #93c5fd; }
+        .badge-needs_review { background: #78350f; color: #fcd34d; }
+        .badge-needs_repair { background: #7c2d12; color: #fdba74; }
+        .badge-validated { background: #14532d; color: #86efac; }
+        .badge-approved { background: #1e3a5f; color: #93c5fd; }
+        .badge-published { background: #16a34a; color: #fff; }
+        .badge-rejected { background: #7f1d1d; color: #fca5a5; }
+        .badge-failed { background: #7f1d1d; color: #fca5a5; }
+        .empty { text-align: center; padding: 3rem; color: #666; }
+        .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .score { font-weight: 700; }
+        .score-good { color: #86efac; }
+        .score-bad { color: #fca5a5; }
+        .mock-banner { background: #7c2d12; color: #fdba74; padding: 0.75rem 2rem; text-align: center; font-size: 0.9rem; border-bottom: 1px solid #9a3412; }
+        .mock-banner strong { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 Infinity Story — Admin</h1>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+            <a href="/admin/logs" class="btn btn-secondary">📋 Live Logs</a>
+            <a href="/admin/new" class="btn">+ Neue Story</a>
+        </div>
+    </div>
+    {% if is_mock_mode %}
+    <div class="mock-banner">
+        ⚠️ <strong>Mock-Modus aktiv</strong> — LLM_PROVIDER=mock. Neue Stories werden mit statischen Beispiel-Daten generiert. Konfiguriere einen echten LLM-Provider für echte KI-generierte Inhalte.
+    </div>
+    {% endif %}
+    <div class="container">
+        <h2>Story Drafts</h2>
+        {% if drafts %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Titel</th>
+                    <th>Genre</th>
+                    <th>Sprache</th>
+                    <th>Status</th>
+                    <th>Score</th>
+                    <th>Knoten</th>
+                    <th>Enden</th>
+                    <th>Erstellt</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in drafts %}
+                <tr>
+                    <td><a href="/admin/draft/{{ d.id }}">{{ d.title }}</a></td>
+                    <td>{{ d.genre or '—' }}</td>
+                    <td>{{ d.language or '—' }}</td>
+                    <td><span class="badge badge-{{ d.status }}">{{ d.status }}</span></td>
+                    <td class="score {{ 'score-good' if d.quality_score and d.quality_score >= 7.0 else 'score-bad' }}">{{ d.quality_score if d.quality_score else '—' }}</td>
+                    <td>{{ d.node_count }}</td>
+                    <td>{{ d.ending_count }}</td>
+                    <td>{{ d.created_at.strftime('%Y-%m-%d') if d.created_at else '—' }}</td>
+                    <td class="actions">
+                        <a href="/admin/draft/{{ d.id }}" class="btn btn-sm btn-secondary">Öffnen</a>
+                        <form method="POST" action="/admin/draft/{{ d.id }}/delete" style="display:inline" onsubmit="return confirmDelete('{{ d.title|replace("'", "\\'") }}')">
+                            <button class="btn btn-sm btn-danger" type="submit">🗑 Löschen</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">
+            <p>Noch keine Story-Drafts vorhanden.</p>
+            <br>
+            <a href="/admin/new" class="btn">+ Erste Story erstellen</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ═══ Sticky Bottom Event Log Bar (t_e904d515) — shared component ═══ -->
+    <link rel="stylesheet" href="/admin/static/event_log_bar.css">
+    <div id="elb-container"></div>
+    <script src="/admin/static/event_log_bar.js"></script>
+    <script>
+    function confirmDelete(title) {
+        return confirm('Möchtest du die Story "' + title + '" wirklich löschen?\n\nDies löscht alle Versionen, Reviews, Validierungen und Generation-Jobs. Veröffentlichte Szenarien bleiben erhalten.');
+    }
+    </script>
+</body>
+</html>

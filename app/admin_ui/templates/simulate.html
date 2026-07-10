@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulation — {{ draft.title }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; }
+        .header { background: #1a1a2e; padding: 1rem 2rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #8b5cf6; font-size: 1.3rem; }
+        .header a { color: #a78bfa; text-decoration: none; }
+        .header .actions { display: flex; gap: 0.5rem; }
+        .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+        .path-bar { background: #1a1a2e; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; border: 1px solid #333; }
+        .path-bar-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; margin-bottom: 0.4rem; }
+        .path-items { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+        .path-item { background: #2a2a4e; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.72rem; border: 1px solid #3a3a5e; }
+        .path-item.current { background: #8b5cf6; border-color: #a78bfa; color: #fff; }
+        .path-arrow { color: #4b5563; font-size: 0.7rem; }
+        .scene-card { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+        .scene-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .scene-title { font-size: 1.2rem; color: #a78bfa; }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.68rem; font-weight: 600; margin-left: 0.5rem; }
+        .badge-start { background: #1e40af; color: #bfdbfe; }
+        .badge-end { background: #7c2d12; color: #fed7aa; }
+        .badge-act { background: #3730a3; color: #c7d2fe; }
+        .scene-location { font-size: 0.85rem; color: #86efac; margin-bottom: 0.5rem; }
+        .scene-goal { white-space: pre-wrap; line-height: 1.6; margin-bottom: 1rem; }
+        .scene-characters { font-size: 0.8rem; color: #fbbf24; margin-bottom: 0.5rem; }
+        .scene-reveals { margin: 0.5rem 0; }
+        .reveal-item { font-size: 0.8rem; color: #c4b5fd; padding-left: 1rem; }
+        .scene-mood { font-size: 0.75rem; color: #6b7280; font-style: italic; }
+        .choices-list { list-style: none; }
+        .choice-btn { display: block; width: 100%; text-align: left; padding: 0.75rem 1rem; background: #111; border: 1px solid #333; border-radius: 6px; margin-bottom: 0.5rem; cursor: pointer; color: #e0e0e0; font-size: 0.85rem; transition: all 0.2s; }
+        .choice-btn:hover { background: #1a1a2e; border-color: #8b5cf6; color: #a78bfa; }
+        .choice-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .choice-letter { display: inline-block; width: 1.5rem; height: 1.5rem; line-height: 1.5rem; text-align: center; background: #8b5cf6; color: #fff; border-radius: 50%; font-size: 0.7rem; margin-right: 0.5rem; }
+        .state-panel { background: #0d0d1a; border: 1px solid #1a1a2e; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        .state-panel-title { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; margin-bottom: 0.5rem; }
+        .state-json { font-family: monospace; font-size: 0.78rem; color: #93c5fd; white-space: pre-wrap; word-break: break-all; }
+        .diff-added { color: #86efac; }
+        .diff-changed { color: #fbbf24; }
+        .diff-removed { color: #fca5a5; }
+        .diff-empty { color: #4b5563; font-style: italic; }
+        .ending-banner { text-align: center; padding: 2rem; font-size: 1.2rem; color: #8b5cf6; border: 1px solid #8b5cf6; border-radius: 8px; margin-bottom: 1rem; background: #1a1a2e; }
+        .btn { display: inline-block; padding: 0.5rem 1rem; background: #8b5cf6; color: #fff; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 0.85rem; }
+        .btn:hover { background: #7c3aed; }
+        .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
+        .btn-secondary { background: #374151; }
+        .btn-secondary:hover { background: #4b5563; }
+        .error-msg { background: #7f1d1d; color: #fecaca; padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+        .loading { color: #6b7280; text-align: center; padding: 2rem; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><a href="/admin/draft/{{ draft.id }}">{{ draft.title }}</a> &rarr; Simulation</h1>
+        <div class="actions">
+            <button class="btn btn-secondary btn-sm" onclick="resetSim()">Neu starten</button>
+            <a href="/admin/draft/{{ draft.id }}" class="btn btn-secondary btn-sm">Zur&uuml;ck</a>
+        </div>
+    </div>
+    <div class="container">
+        <div id="sim-app" data-graph='{{ graph_json }}' data-sim-start='{{ sim_start_json }}' data-draft-id='{{ draft.id }}'>
+            <p class="loading">Loading simulation...</p>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const el = document.getElementById('sim-app');
+        const graph = JSON.parse(el.dataset.graph);
+        const draftId = el.dataset.draftId;
+        let simState = JSON.parse(el.dataset.simStart);
+        let busy = false;
+
+        if (simState.error) {
+            el.innerHTML = '<div class="error-msg">' + simState.error + '</div>';
+            return;
+        }
+
+        function esc(s) {
+            if (s == null) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function renderPath() {
+            const path = simState.path || [];
+            if (!path.length) return '';
+            let html = '<div class="path-bar"><div class="path-bar-label">Pfad (' + path.length + ' Knoten)</div><div class="path-items">';
+            path.forEach(function(nid, i) {
+                const node = graph.nodes[nid] || {};
+                const isCurrent = (i === path.length - 1);
+                html += '<span class="path-item' + (isCurrent ? ' current' : '') + '">' + (i+1) + '. ' + esc(node.title || nid) + '</span>';
+                if (i < path.length - 1) html += '<span class="path-arrow">&rarr;</span>';
+            });
+            html += '</div></div>';
+            return html;
+        }
+
+        function renderScene() {
+            const scene = simState.current_node || {};
+            const choices = simState.available_choices || [];
+            const isEnded = simState.is_ended;
+            let html = '<div class="scene-card">';
+            html += '<div class="scene-header"><span class="scene-title">' + esc(scene.title || scene.id) + '</span>';
+            html += '<span>';
+            if (scene.is_start) html += '<span class="badge badge-start">Start</span>';
+            if (scene.is_end) html += '<span class="badge badge-end">Ende</span>';
+            html += '<span class="badge badge-act">Akt ' + esc(scene.act || 1) + '</span>';
+            html += '</span></div>';
+            if (scene.location) html += '<div class="scene-location">&#128205; ' + esc(scene.location) + '</div>';
+            if (scene.scene_goal) html += '<div class="scene-goal">' + esc(scene.scene_goal) + '</div>';
+            if (scene.characters && scene.characters.length) html += '<div class="scene-characters">&#128101; ' + scene.characters.map(esc).join(', ') + '</div>';
+            if (scene.mood) html += '<div class="scene-mood">Stimmung: ' + esc(scene.mood) + '</div>';
+            if (scene.reveals && scene.reveals.length) {
+                html += '<div class="scene-reveals">';
+                scene.reveals.forEach(function(r) { html += '<div class="reveal-item">&#128269; ' + esc(r) + '</div>'; });
+                html += '</div>';
+            }
+            html += '</div>';
+
+            if (isEnded || !choices.length) {
+                html += '<div class="ending-banner">&#127881; Story beendet &#127881;</div>';
+                html += '<button class="btn" onclick="resetSim()">Neue Simulation starten</button>';
+            } else {
+                html += '<ul class="choices-list">';
+                choices.forEach(function(c, i) {
+                    const letter = String.fromCharCode(65 + i);
+                    html += '<li><button class="choice-btn" onclick="choose(\'' + esc(c.id) + '\')"><span class="choice-letter">' + letter + '</span>' + esc(c.label || c.id) + '</button></li>';
+                });
+                html += '</ul>';
+            }
+            return html;
+        }
+
+        function renderStateDiff() {
+            const ws = simState.world_state || {};
+            const diff = simState.state_diff || {added:{},changed:[],removed:{}};
+            let html = '<div class="two-col"><div class="state-panel"><div class="state-panel-title">World State</div>';
+            html += '<div class="state-json">' + esc(JSON.stringify(ws, null, 2)) + '</div></div>';
+            html += '<div class="state-panel"><div class="state-panel-title">State-Diff</div>';
+            const added = diff.added || {}, changed = diff.changed || [], removed = diff.removed || {};
+            if (!Object.keys(added).length && !changed.length && !Object.keys(removed).length) {
+                html += '<div class="diff-empty">Keine Aenderungen</div>';
+            } else {
+                for (var k in added) html += '<div class="diff-added">+ ' + esc(k) + ' = ' + esc(JSON.stringify(added[k])) + '</div>';
+                changed.forEach(function(c) { html += '<div class="diff-changed">~ ' + esc(c.key) + ': ' + esc(JSON.stringify(c.old)) + ' &rarr; ' + esc(JSON.stringify(c.new)) + '</div>'; });
+                for (var k2 in removed) html += '<div class="diff-removed">- ' + esc(k2) + ' = ' + esc(JSON.stringify(removed[k2])) + '</div>';
+            }
+            html += '</div></div>';
+            return html;
+        }
+
+        function render() {
+            if (simState.error) { el.innerHTML = '<div class="error-msg">' + esc(simState.error) + '</div>'; return; }
+            let html = renderPath();
+            if (simState.selected_choice) {
+                html += '<div class="state-panel"><div class="state-panel-title">Gewaehlt: ' + esc(simState.selected_choice.label) + '</div></div>';
+            }
+            html += renderScene();
+            html += renderStateDiff();
+            el.innerHTML = html;
+        }
+
+        window.choose = function(choiceId) {
+            if (busy || simState.is_ended) return;
+            busy = true;
+            fetch('/admin/draft/' + draftId + '/simulate/choose', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    current_node_id: simState.current_node_id,
+                    choice_id: choiceId,
+                    world_state: simState.world_state,
+                    path: simState.path,
+                    step_count: simState.step_count || 0,
+                })
+            }).then(function(r) { return r.json(); }).then(function(data) {
+                simState = data;
+                busy = false;
+                render();
+            }).catch(function(e) {
+                busy = false;
+                el.innerHTML += '<div class="error-msg">Fehler: ' + esc(e.message) + '</div>';
+            });
+        };
+
+        window.resetSim = function() {
+            simState = JSON.parse(el.dataset.simStart);
+            render();
+        };
+
+        render();
+    })();
+
+    // ═══ Sticky Bottom Event Log Bar (t_e904d515) — shared component ═══
+    </script>
+    <link rel="stylesheet" href="/admin/static/event_log_bar.css">
+    <div id="elb-container" data-draft-id="{{ draft.id }}"></div>
+    <script src="/admin/static/event_log_bar.js"></script>
+</body>
+</html>

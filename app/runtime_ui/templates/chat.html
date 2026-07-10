@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinity Story — Chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; }
+
+        /* ── Header ── */
+        .header { background: #1a1a2e; padding: 0.75rem 1.5rem; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .header h1 { color: #8b5cf6; font-size: 1.1rem; }
+        .header a { color: #a78bfa; text-decoration: none; font-size: 0.85rem; }
+        .header-right { display: flex; align-items: center; gap: 1rem; }
+        .status-badge { padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+        .status-idle { background: #334; color: #aab; }
+        .status-active { background: #14532d; color: #86efac; }
+        .status-ended { background: #7c2d12; color: #fdba74; }
+        .status-waiting { background: #1e3a5f; color: #93c5fd; }
+
+        /* ── Chat Area ── */
+        .chat-area { flex: 1; overflow-y: auto; padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+        .chat-area::-webkit-scrollbar { width: 6px; }
+        .chat-area::-webkit-scrollbar-track { background: #0f0f1a; }
+        .chat-area::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+        .message { max-width: 80%; padding: 0.75rem 1rem; border-radius: 12px; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; animation: fadeIn 0.2s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .message-story { align-self: flex-start; background: #1a1a2e; border: 1px solid #333; border-bottom-left-radius: 4px; }
+        .message-user { align-self: flex-end; background: #8b5cf6; color: #fff; border-bottom-right-radius: 4px; }
+        .message-system { align-self: center; background: transparent; color: #666; font-size: 0.8rem; font-style: italic; max-width: 100%; text-align: center; }
+        .message-error { align-self: center; background: #7f1d1d; color: #fca5a5; font-size: 0.85rem; border-radius: 8px; }
+
+        /* ── Choice Buttons ── */
+        .choices-container { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; max-width: 80%; align-self: flex-start; }
+        .choice-btn { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; background: #1a1a2e; border: 1px solid #6366f1; border-radius: 8px; cursor: pointer; color: #e0e0e0; font-size: 0.9rem; text-align: left; transition: all 0.15s; font-family: inherit; }
+        .choice-btn:hover { background: #2a2a4e; border-color: #8b5cf6; }
+        .choice-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .choice-letter { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; background: #8b5cf6; color: #fff; border-radius: 50%; font-size: 0.75rem; font-weight: 700; flex-shrink: 0; }
+
+        /* ── Scenario List ── */
+        .scenario-list { display: flex; flex-direction: column; gap: 0.5rem; max-width: 80%; align-self: flex-start; }
+        .scenario-btn { padding: 1rem; background: #1a1a2e; border: 1px solid #6366f1; border-radius: 8px; cursor: pointer; color: #e0e0e0; text-align: left; transition: all 0.15s; font-family: inherit; }
+        .scenario-btn:hover { background: #2a2a4e; border-color: #8b5cf6; }
+        .scenario-btn .scenario-title { font-weight: 600; font-size: 1rem; color: #a78bfa; }
+        .scenario-btn .scenario-genre { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+
+        /* ── Input Area ── */
+        .input-area { background: #1a1a2e; border-top: 1px solid #333; padding: 1rem 1.5rem; flex-shrink: 0; }
+        .input-row { display: flex; gap: 0.75rem; }
+        .input-field { flex: 1; padding: 0.75rem 1rem; background: #0f0f1a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; font-size: 0.95rem; font-family: inherit; outline: none; }
+        .input-field:focus { border-color: #8b5cf6; }
+        .input-field::placeholder { color: #555; }
+        .send-btn { padding: 0.75rem 1.5rem; background: #8b5cf6; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: background 0.15s; }
+        .send-btn:hover { background: #7c3aed; }
+        .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .input-hint { font-size: 0.72rem; color: #555; margin-top: 0.4rem; text-align: center; }
+
+        /* ── World State Panel ── */
+        .state-panel { position: fixed; top: 0; right: -400px; width: 380px; height: 100vh; background: #1a1a2e; border-left: 2px solid #8b5cf6; box-shadow: -4px 0 20px rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto; transition: right 0.3s ease; }
+        .state-panel.open { right: 0; }
+        .state-panel-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid #333; background: #14142a; position: sticky; top: 0; z-index: 10; }
+        .state-panel-header h3 { color: #8b5cf6; font-size: 1rem; }
+        .state-panel-close { background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer; }
+        .state-panel-close:hover { color: #fff; }
+        .state-panel-body { padding: 1rem 1.5rem; }
+        .state-json { font-family: monospace; font-size: 0.78rem; color: #93c5fd; white-space: pre-wrap; word-break: break-all; background: #0a0a14; padding: 0.75rem; border-radius: 6px; }
+
+        .state-toggle { background: none; border: 1px solid #333; color: #888; padding: 0.25rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem; }
+        .state-toggle:hover { color: #a78bfa; border-color: #8b5cf6; }
+
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 999; display: none; }
+        .overlay.show { display: block; }
+
+        .typing-indicator { align-self: flex-start; background: #1a1a2e; border: 1px solid #333; border-radius: 12px; border-bottom-left-radius: 4px; padding: 0.75rem 1rem; display: none; }
+        .typing-indicator.show { display: flex; gap: 4px; }
+        .typing-dot { width: 8px; height: 8px; background: #666; border-radius: 50%; animation: bounce 1.4s infinite; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+        @media (max-width: 600px) {
+            .message { max-width: 95%; }
+            .choices-container, .scenario-list { max-width: 95%; }
+            .header { padding: 0.5rem 1rem; }
+            .header h1 { font-size: 0.95rem; }
+            .chat-area { padding: 0.75rem 1rem; }
+            .input-area { padding: 0.75rem 1rem; }
+            .state-panel { width: 100%; }
+        }
+
+        /* ── Ending Banner ── */
+        .ending-banner { align-self: center; margin: 1rem 0; padding: 1rem 2rem; background: linear-gradient(135deg, #1a1a2e, #2a1a4e); border: 2px solid #8b5cf6; border-radius: 12px; text-align: center; animation: fadeIn 0.3s ease; }
+        .ending-banner .ending-title { font-size: 1.2rem; font-weight: 700; color: #8b5cf6; margin-bottom: 0.5rem; }
+        .ending-banner .ending-text { font-size: 0.85rem; color: #a78bfa; }
+        .ending-banner .ending-reset { margin-top: 0.75rem; padding: 0.5rem 1.5rem; background: #8b5cf6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; font-family: inherit; }
+        .ending-banner .ending-reset:hover { background: #7c3aed; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📖 <a href="/">Infinity Story</a></h1>
+        <div class="header-right">
+            <span id="status-badge" class="status-badge status-idle">Keine Session — sende Start</span>
+            <button class="state-toggle" onclick="resetSession()" title="Neue Story starten">↻ Reset</button>
+            <button class="state-toggle" onclick="toggleStatePanel()">⚙ State</button>
+        </div>
+    </div>
+
+    <div class="chat-area" id="chat-area">
+        <div class="message message-system">Sende "Start" oder klicke ↻ Reset um ein Szenario zu wählen.</div>
+    </div>
+
+    <div class="typing-indicator" id="typing">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-row">
+            <input type="text" id="input-field" class="input-field" placeholder="Nachricht eingeben…" autocomplete="off" autofocus>
+            <button id="send-btn" class="send-btn" onclick="sendMessage()">Senden</button>
+        </div>
+        <div class="input-hint">Enter zum Senden · "Start" für Szenario-Auswahl · Klicke Choice-Buttons für Aktionen</div>
+    </div>
+
+    <!-- World State Panel -->
+    <div class="overlay" id="overlay" onclick="toggleStatePanel()"></div>
+    <div class="state-panel" id="state-panel">
+        <div class="state-panel-header">
+            <h3>⚙ World State</h3>
+            <button class="state-panel-close" onclick="toggleStatePanel()">×</button>
+        </div>
+        <div class="state-panel-body">
+            <div id="state-content" class="state-json">{ }</div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const chatArea = document.getElementById('chat-area');
+        const inputField = document.getElementById('input-field');
+        const sendBtn = document.getElementById('send-btn');
+        const statusBadge = document.getElementById('status-badge');
+        const typingIndicator = document.getElementById('typing');
+        const stateContent = document.getElementById('state-content');
+
+        let sessionId = null;
+        let busy = false;
+        let worldState = {};
+
+        // ── Helpers ──
+        function esc(s) {
+            if (s == null) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function setStatus(text, cls) {
+            statusBadge.textContent = text;
+            statusBadge.className = 'status-badge ' + cls;
+        }
+
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = 'message message-' + type;
+            div.textContent = text;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function addError(text) {
+            const div = document.createElement('div');
+            div.className = 'message message-error';
+            div.textContent = '⚠ ' + text;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function clearChoices() {
+            document.querySelectorAll('.choices-container, .scenario-list').forEach(el => el.remove());
+        }
+
+        function showTyping(show) {
+            typingIndicator.classList.toggle('show', show);
+            if (show) chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function setBusy(b) {
+            busy = b;
+            sendBtn.disabled = b;
+            inputField.disabled = b;
+            if (!b) inputField.focus();
+        }
+
+        // ── Render scene response ──
+        function renderResponse(data) {
+            // Show story messages
+            if (data.messages) {
+                data.messages.forEach(function(msg) {
+                    addMessage(msg, 'story');
+                });
+            }
+
+            // Update session info
+            if (data.session_id) {
+                sessionId = data.session_id;
+            }
+
+            // Update status
+            if (data.scene) {
+                var scene = data.scene;
+                if (scene.is_ending || (scene.suggested_next_node === null && data.session_id && !scene.choices)) {
+                    setStatus('Story beendet', 'status-ended');
+                    showEndingBanner();
+                } else if (scene.choices && scene.choices.length > 0) {
+                    setStatus('Session aktiv — Wahl treffen', 'status-waiting');
+                } else if (data.session_id) {
+                    setStatus('Session aktiv', 'status-active');
+                } else {
+                    setStatus('Keine Session — sende Start', 'status-idle');
+                }
+
+                // Show choices as buttons
+                clearChoices();
+                if (scene.choices && scene.choices.length > 0) {
+                    var container = document.createElement('div');
+                    container.className = 'choices-container';
+                    scene.choices.forEach(function(ch, i) {
+                        var btn = document.createElement('button');
+                        btn.className = 'choice-btn';
+                        var letter = String.fromCharCode(65 + i);
+                        btn.innerHTML = '<span class="choice-letter">' + letter + '</span><span>' + esc(ch.label || ch.id) + '</span>';
+                        btn.onclick = function() { sendChoice(ch); };
+                        container.appendChild(btn);
+                    });
+                    chatArea.appendChild(container);
+                    chatArea.scrollTop = chatArea.scrollHeight;
+                }
+
+                // Update world state
+                if (scene.state_updates) {
+                    try {
+                        if (typeof scene.state_updates === 'string') {
+                            worldState = JSON.parse(scene.state_updates);
+                        } else {
+                            worldState = scene.state_updates;
+                        }
+                    } catch(e) { worldState = scene.state_updates; }
+                    updateStatePanel();
+                }
+            } else if (data.messages && data.messages.length > 0) {
+                // Check if it's a scenario list (starts with "Wähle ein Szenario")
+                var firstMsg = data.messages[0];
+                if (firstMsg.indexOf('Wähle ein Szenario') === 0) {
+                    setStatus('Szenario wählen', 'status-waiting');
+                    renderScenarioList();
+                } else if (!data.session_id) {
+                    // No session and no scene — likely "no active story" message
+                    setStatus('Keine Session — sende Start', 'status-idle');
+                }
+            }
+        }
+
+        // ── Ending banner ──
+        function showEndingBanner() {
+            var banner = document.createElement('div');
+            banner.className = 'ending-banner';
+            banner.innerHTML =
+                '<div class="ending-title">🎬 Geschichte beendet</div>' +
+                '<div class="ending-text">Diese Story ist zu Ende.</div>' +
+                '<button class="ending-reset" onclick="resetSession()">Neue Story starten</button>';
+            chatArea.appendChild(banner);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        window.resetSession = function() {
+            sessionId = null;
+            worldState = {};
+            updateStatePanel();
+            setStatus('Keine Session — sende Start', 'status-idle');
+            // Send "Start" to get scenario list
+            addMessage('Start', 'user');
+            sendToAPI('Start');
+        };
+
+        // ── Render scenario list from /api/scenarios ──
+        function renderScenarioList() {
+            fetch('/api/scenarios')
+                .then(function(r) { return r.json(); })
+                .then(function(scenarios) {
+                    clearChoices();
+                    var container = document.createElement('div');
+                    container.className = 'scenario-list';
+                    scenarios.forEach(function(sc) {
+                        var btn = document.createElement('button');
+                        btn.className = 'scenario-btn';
+                        btn.innerHTML = '<div class="scenario-title">' + esc(sc.title) + '</div>' +
+                                        '<div class="scenario-genre">' + esc(sc.genre || '') + '</div>';
+                        btn.onclick = function() {
+                            addMessage(sc.title, 'user');
+                            sendToAPI(sc.id || sc.title);
+                        };
+                        container.appendChild(btn);
+                    });
+                    chatArea.appendChild(container);
+                    chatArea.scrollTop = chatArea.scrollHeight;
+                })
+                .catch(function(e) {
+                    // API not available — user can still type number/name
+                });
+        }
+
+        function updateStatePanel() {
+            // If we have a session, fetch full state from API for completeness
+            if (sessionId) {
+                fetch('/api/sessions/' + encodeURIComponent(sessionId))
+                    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                    .then(function(data) {
+                        try {
+                            var fullState = JSON.parse(data.world_state_json || '{}');
+                            stateContent.textContent = JSON.stringify(fullState, null, 2);
+                        } catch(e) {
+                            stateContent.textContent = JSON.stringify(worldState, null, 2);
+                        }
+                    })
+                    .catch(function(e) {
+                        stateContent.textContent = JSON.stringify(worldState, null, 2);
+                    });
+            } else {
+                stateContent.textContent = JSON.stringify(worldState, null, 2);
+            }
+        }
+
+        window.toggleStatePanel = function() {
+            var panel = document.getElementById('state-panel');
+            var overlay = document.getElementById('overlay');
+            panel.classList.toggle('open');
+            overlay.classList.toggle('show');
+        };
+
+        // ── Send message ──
+        function sendToAPI(messageText) {
+            setBusy(true);
+            showTyping(true);
+            clearChoices();
+
+            fetch('/api/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: 'chat_user',
+                    message: messageText,
+                })
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                showTyping(false);
+                renderResponse(data);
+                setBusy(false);
+            })
+            .catch(function(e) {
+                showTyping(false);
+                addError('Verbindungsfehler: ' + e.message);
+                setBusy(false);
+            });
+        }
+
+        window.sendMessage = function() {
+            if (busy) return;
+            var text = inputField.value.trim();
+            if (!text) return;
+            addMessage(text, 'user');
+            inputField.value = '';
+            sendToAPI(text);
+        };
+
+        window.sendChoice = function(choice) {
+            if (busy) return;
+            var displayText = choice.label || choice.id;
+            var sendText = choice.id || choice.label;
+            addMessage(displayText, 'user');
+            sendToAPI(sendText);
+        };
+
+        // ── Enter to send ──
+        inputField.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // ── Auto-start: send "Start" on load, or start with ?scenario=id ──
+        setStatus('Keine Session — sende Start', 'status-idle');
+        var params = new URLSearchParams(window.location.search);
+        var scenarioParam = params.get('scenario');
+        if (scenarioParam) {
+            // Auto-start with a specific scenario
+            addMessage(scenarioParam, 'user');
+            sendToAPI(scenarioParam);
+        } else {
+            // Auto-fetch scenario list on load
+            addMessage('Start', 'user');
+            sendToAPI('Start');
+        }
+    })();
+    </script>
+</body>
+</html>
