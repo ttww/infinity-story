@@ -22,6 +22,7 @@
         // Build the HTML structure
         container.innerHTML = `
             <div class="elb-wrapper" id="elb-wrapper">
+                <div class="elb-resize-handle" id="elb-resize-handle" title="Zum Anpassen der Höhe ziehen"></div>
                 <div class="elb-header" id="elb-header">
                     <div class="elb-header-left">
                         <span class="elb-header-title">📋 Live Event Log</span>
@@ -80,6 +81,7 @@
             expanded = true;
             body.classList.remove('hidden');
             toggle.classList.remove('collapsed');
+            document.body.classList.remove('elb-collapsed');
             connect();
         }
 
@@ -87,6 +89,7 @@
             expanded = false;
             body.classList.add('hidden');
             toggle.classList.add('collapsed');
+            document.body.classList.add('elb-collapsed');
             disconnect();
         }
 
@@ -269,6 +272,63 @@
             div.textContent = String(str);
             return div.innerHTML;
         }
+
+        // ── Resize handle (drag to resize body height) ──
+        const resizeHandle = document.getElementById('elb-resize-handle');
+        const MIN_HEIGHT = 80;
+        const MAX_HEIGHT = window.innerHeight - 120;
+
+        // Restore saved height from localStorage
+        try {
+            const saved = localStorage.getItem('elb-body-height');
+            if (saved) {
+                const h = parseInt(saved, 10);
+                if (h >= MIN_HEIGHT && h <= MAX_HEIGHT) {
+                    document.documentElement.style.setProperty('--elb-body-height', h + 'px');
+                }
+            }
+        } catch(e) {}
+
+        resizeHandle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const startY = e.clientY;
+            const wrapper = document.getElementById('elb-wrapper');
+            const currentHeight = parseInt(getComputedStyle(body).height, 10);
+
+            wrapper.classList.add('resizing');
+            resizeHandle.classList.add('dragging');
+            document.body.style.cursor = 'ns-resize';
+            document.body.style.userSelect = 'none';
+
+            function onMouseMove(ev) {
+                const delta = startY - ev.clientY; // up = positive = grow
+                let newHeight = currentHeight + delta;
+                const maxH = window.innerHeight - 120;
+                if (newHeight < MIN_HEIGHT) newHeight = MIN_HEIGHT;
+                if (newHeight > maxH) newHeight = maxH;
+                document.documentElement.style.setProperty('--elb-body-height', newHeight + 'px');
+            }
+
+            function onMouseUp(ev) {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                wrapper.classList.remove('resizing');
+                resizeHandle.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+
+                // Persist height
+                const finalHeight = parseInt(getComputedStyle(body).height, 10);
+                try {
+                    localStorage.setItem('elb-body-height', String(finalHeight));
+                } catch(e) {}
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
 
         // Auto-expand on first load if there's a draft_id (draft detail page)
         // On list pages, start collapsed

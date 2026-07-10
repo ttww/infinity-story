@@ -257,6 +257,28 @@ Rules:
 - Do not create broken references
 - Only change problematic parts
 - Document your changes
+- Return ONLY the changes as patches — do NOT return the full graph
+
+Output format — return JSON:
+{
+  "node_patches": {
+    "node_001": {
+      "scene_goal": "<improved scene goal>",
+      "mood": "<improved mood>"
+    }
+  },
+  "new_nodes": {
+    "node_010": { "id": "node_010", "title": "...", ... }
+  },
+  "deleted_nodes": [],
+  "changes": [
+    "<description of change 1>"
+  ],
+  "summary": "<1-2 sentence summary of repairs applied>"
+}
+
+Important: node_patches contains ONLY the fields that changed for each node. \
+The agent will merge these onto the existing node. Omit fields that did not change.
 """
 
 
@@ -310,22 +332,49 @@ Rules:
 - New nodes must have valid choices connecting them to the existing graph
 - Do not create dangling references (choices pointing to non-existent nodes)
 - Keep the language consistent with the story's language field
-- Return the FULL improved graph (not just the changed parts)
-- Document your changes in the "changes" array
+- Return ONLY the changes as patches — do NOT return the full graph
 
-Output format — return JSON:
+Output format — return JSON with node patches (field-level merges onto \
+existing nodes), new_nodes (complete node definitions for added nodes), \
+and deleted_nodes (IDs of nodes to remove):
+
 {
-  "graph": {
-    "nodes": { "node_001": { ... }, ... },
-    "start_node_id": "node_001",
-    ...top-level fields...
+  "node_patches": {
+    "node_001": {
+      "scene_goal": "<improved scene goal>",
+      "mood": "<improved mood>",
+      "quality_notes": ["<note 1>", "<note 2>"]
+    }
   },
+  "new_nodes": {
+    "node_010": {
+      "id": "node_010",
+      "title": "<title>",
+      "type": "scene",
+      "act": 2,
+      "scene_goal": "<goal>",
+      "mood": "<mood>",
+      "location": "<location>",
+      "characters": ["<char>"],
+      "reveals": [],
+      "choices": [{"id": "c_new", "label": "<label>", "next_node_id": "node_003"}],
+      "quality_notes": [],
+      "is_start": false,
+      "is_end": false
+    }
+  },
+  "deleted_nodes": ["node_005"],
   "changes": [
     "<description of change 1>",
     "<description of change 2>"
   ],
   "summary": "<1-2 sentence summary of enhancements applied>"
 }
+
+Important: node_patches contains ONLY the fields that changed for each node. \
+The agent will merge these onto the existing node. Omit fields that did not change. \
+Leave "new_nodes" empty if no new nodes are added. \
+Leave "deleted_nodes" empty if no nodes are removed.
 """
 
 
@@ -385,5 +434,8 @@ def build_enhancement_user_prompt(
     }
     desc = mode_descriptions.get(mode, "Enhance the story graph as instructed.")
     parts.append(f"\n=== TASK ===\n{desc}")
-    parts.append("\nReturn the full improved graph with documented changes.")
+    parts.append(
+        "\nReturn ONLY the changes as node_patches, new_nodes, and deleted_nodes. "
+        "Do NOT return the full graph."
+    )
     return "\n".join(parts)

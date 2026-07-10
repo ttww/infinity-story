@@ -13,6 +13,31 @@
     transition: height 0.2s ease;
 }
 
+/* ── Resize handle (drag to resize) ── */
+.elb-resize-handle {
+    position: absolute;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    cursor: ns-resize;
+    z-index: 501;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.elb-resize-handle::before {
+    content: '';
+    width: 60px;
+    height: 4px;
+    border-radius: 2px;
+    background: #444;
+    transition: background 0.15s;
+}
+.elb-resize-handle:hover::before { background: #8b5cf6; }
+.elb-resize-handle.dragging::before { background: #8b5cf6; height: 5px; }
+.elb-wrapper.resizing { transition: none; user-select: none; }
+
 /* ── Header bar (always visible, click to toggle) ── */
 .elb-header {
     display: flex;
@@ -68,11 +93,11 @@
 }
 .elb-toggle.collapsed { transform: rotate(-90deg); }
 
-/* ── Body (collapsible) ── */
+/* ── Body (collapsible, resizable) ── */
 .elb-body {
     display: flex;
     flex-direction: column;
-    height: 150px;
+    height: var(--elb-body-height, 150px);
     overflow: hidden;
 }
 .elb-body.hidden { display: none; }
@@ -206,4 +231,5 @@
 }
 
 /* ── Body bottom padding to prevent overlap with sticky bar ── */
-body.elb-active { padding-bottom: 180px; }
+body.elb-active { padding-bottom: calc(var(--elb-body-height, 150px) + 30px + 8px); }
+body.elb-active.elb-collapsed { padding-bottom: 38px; }

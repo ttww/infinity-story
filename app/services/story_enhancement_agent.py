@@ -118,9 +118,24 @@ class StoryEnhancementAgent:
         )
 
         try:
+            # With the diff-based prompt, the LLM only returns changed fields,
+            # not the full graph. This dramatically reduces output size.
+            # Estimate tokens needed based on graph size (for reasoning overhead).
+            import json as _json
+            graph_str = _json.dumps(graph, ensure_ascii=False)
+            est_input_tokens = len(graph_str) // 4
+            # LLM needs reasoning overhead + patch output.
+            # Patches are typically much smaller than the full graph.
+            # GLM-5.2 uses ~2x tokens for reasoning, so give generous room.
+            needed_tokens = min(max(est_input_tokens, 4096), 16384)
+            # Input budget: graph JSON + prompts. Use 3x input estimate
+            # to give ample room for the full graph + system prompt.
+            needed_input_tokens = min(max(est_input_tokens * 3, 8192), 65536)
             result = await self.llm.generate_json(
                 system_prompt=ENHANCEMENT_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
+                max_tokens=needed_tokens,
+                max_input_tokens=needed_input_tokens,
             )
         except Exception as exc:
             logger.error("Enhancement generation failed (mode=%s): %s", mode, exc)
@@ -128,30 +143,79 @@ class StoryEnhancementAgent:
                 f"Enhancement failed: {exc}"
             ) from exc
 
-        # Normalise result: the LLM may return just the graph or a wrapper
-        if "nodes" in result and "graph" not in result:
-            # LLM returned the graph directly without a wrapper
-            result = {
-                "graph": result,
-                "changes": [],
-                "summary": "",
-            }
+        # Apply patches to build the enhanced graph
+        enhanced_graph = self._apply_patches(graph, result)
 
-        result.setdefault("graph", graph)  # fallback to original
-        result.setdefault("changes", [])
-        result.setdefault("summary", "")
+        return {
+            "graph": enhanced_graph,
+            "changes": result.get("changes", []),
+            "summary": result.get("summary", ""),
+        }
 
-        # Ensure the enhanced graph has a start_node_id
-        enhanced_graph = result["graph"]
-        if enhanced_graph.get("start_node_id") is None:
-            for nid, node in enhanced_graph.get("nodes", {}).items():
+    @staticmethod
+    def _apply_patches(
+        original: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Apply node patches from LLM result to the original graph.
+
+        Handles both the new diff-based format (node_patches, new_nodes,
+        deleted_nodes) and the legacy full-graph format (graph key).
+        """
+        import copy as _copy
+
+        # Legacy fallback: if LLM returned a full graph, use it directly
+        if "graph" in result and "node_patches" not in result:
+            graph = result["graph"]
+            # Ensure start_node_id
+            if graph.get("start_node_id") is None:
+                for nid, node in graph.get("nodes", {}).items():
+                    if isinstance(node, dict) and (
+                        node.get("is_start") or node.get("type") == "start"
+                    ):
+                        graph["start_node_id"] = nid
+                        break
+                if graph.get("start_node_id") is None:
+                    graph["start_node_id"] = original.get("start_node_id")
+            return graph
+
+        # New diff-based format: deep-copy original and apply patches
+        enhanced = _copy.deepcopy(original)
+        nodes = enhanced.setdefault("nodes", {})
+
+        # Apply field-level patches to existing nodes
+        for nid, patch in result.get("node_patches", {}).items():
+            if nid in nodes and isinstance(patch, dict):
+                nodes[nid].update(patch)
+
+        # Add new nodes
+        for nid, node in result.get("new_nodes", {}).items():
+            nodes[nid] = node
+
+        # Remove deleted nodes (and fix dangling references)
+        deleted = set(result.get("deleted_nodes", []))
+        if deleted:
+            for nid in deleted:
+                nodes.pop(nid, None)
+            # Remove choices pointing to deleted nodes
+            for node in nodes.values():
+                if isinstance(node, dict) and isinstance(node.get("choices"), list):
+                    node["choices"] = [
+                        c for c in node["choices"]
+                        if not isinstance(c, dict)
+                        or c.get("next_node_id") not in deleted
+                    ]
+
+        # Ensure start_node_id is still valid
+        if enhanced.get("start_node_id") not in nodes:
+            for nid, node in nodes.items():
                 if isinstance(node, dict) and (
                     node.get("is_start") or node.get("type") == "start"
                 ):
-                    enhanced_graph["start_node_id"] = nid
+                    enhanced["start_node_id"] = nid
                     break
-            # Fall back to original start_node_id
-            if enhanced_graph.get("start_node_id") is None:
-                enhanced_graph["start_node_id"] = graph.get("start_node_id")
+            if enhanced.get("start_node_id") not in nodes:
+                # Fall back to first available node
+                enhanced["start_node_id"] = next(iter(nodes), None)
 
-        return result
+        return enhanced

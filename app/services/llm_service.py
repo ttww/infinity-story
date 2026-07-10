@@ -124,6 +124,7 @@ class LLMService(ABC):
         json_mode: bool = False,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Provider-specific completion call."""
@@ -188,6 +189,7 @@ class LLMService(ABC):
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Generate a JSON-structured response."""
         response = await self._complete(
@@ -196,6 +198,7 @@ class LLMService(ABC):
             json_mode=True,
             max_tokens=max_tokens,
             temperature=temperature,
+            max_input_tokens=max_input_tokens,
         )
         return self._parse_json(response.text)
 
@@ -206,6 +209,7 @@ class LLMService(ABC):
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
     ) -> str:
         """Generate plain text."""
         response = await self._complete(
@@ -214,13 +218,14 @@ class LLMService(ABC):
             json_mode=False,
             max_tokens=max_tokens,
             temperature=temperature,
+            max_input_tokens=max_input_tokens,
         )
         return response.text
 
     # ── Shared helpers ───────────────────────────────────
 
     def _parse_json(self, text: str) -> dict[str, Any]:
-        """Parse JSON from LLM output, tolerating markdown code fences."""
+        """Parse JSON from LLM output, tolerating markdown code fences and truncation."""
         if text is None:
             raise LLMResponseError("LLM returned None (no content). The model may have used all tokens for reasoning.")
         cleaned = text.strip()
@@ -236,7 +241,55 @@ class LLMService(ABC):
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            raise LLMResponseError(f"Invalid JSON from LLM: {exc}\nText: {text[:500]}") from exc
+            # Try to repair truncated JSON by closing open braces/brackets
+            try:
+                repaired = self._repair_truncated_json(cleaned)
+                if repaired:
+                    return json.loads(repaired)
+            except (json.JSONDecodeError, Exception):
+                pass
+            raise LLMResponseError(
+                f"Invalid JSON from LLM (likely truncated — increase max_tokens). "
+                f"Got {len(cleaned)} chars. "
+                f"Error at position {exc.pos}. "
+                f"Text ends with: ...{cleaned[-200:]}"
+            ) from exc
+
+    def _repair_truncated_json(self, text: str) -> str | None:
+        """Attempt to repair truncated JSON by closing open structures."""
+        open_braces = 0
+        open_brackets = 0
+        in_string = False
+        escape = False
+        for ch in text:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                open_braces += 1
+            elif ch == '}':
+                open_braces -= 1
+            elif ch == '[':
+                open_brackets += 1
+            elif ch == ']':
+                open_brackets -= 1
+
+        if open_braces <= 0 and open_brackets <= 0:
+            return None
+
+        if in_string:
+            text += '"'
+        text += ']' * max(open_brackets, 0)
+        text += '}' * max(open_braces, 0)
+        return text
 
     def _parse_scene_json(self, text: str) -> Any:
         """Parse a scene JSON response into a GeneratedScene."""
@@ -556,168 +609,59 @@ _MOCK_REVIEW: dict[str, Any] = {
     ),
 }
 
-_MOCK_ENHANCEMENT_GRAPH: dict[str, Any] = {
-    "nodes": {
+_MOCK_ENHANCEMENT_RESULT: dict[str, Any] = {
+    "node_patches": {
         "node_001": {
-            "id": "node_001",
-            "title": "Ankunft auf Helios",
-            "type": "start",
-            "act": 1,
             "scene_goal": "Spieler trifft auf der Station ein. Das kalte, flackernde Licht der Docking Bay empfängt ihn mit einem Summen, das nach Verlassenheit klingt.",
-            "mood": "unheimlich",
-            "location": "Docking Bay",
-            "characters": ["Dr. Lena Voss"],
-            "reveals": [],
-            "choices": [
-                {"id": "c1", "label": "Zum Briefing gehen", "next_node_id": "node_002"},
-                {"id": "c2", "label": "Station erkunden", "next_node_id": "node_003"},
-            ],
             "quality_notes": ["Startknoten mit starker Atmosphäre", "Enhanced: detaillierte Sinnesbeschreibungen"],
-            "is_start": True,
-            "is_end": False,
         },
         "node_002": {
-            "id": "node_002",
-            "title": "Das Briefing",
-            "type": "scene",
-            "act": 1,
             "scene_goal": "Mission wird erklärt, erste Hinweise auf Verschwindungen. Lena wirkt angespannt und vermeidet Blickkontakt.",
-            "mood": "spannend",
-            "location": "Konferenzraum",
-            "characters": ["Dr. Lena Voss", "Kai Chen"],
-            "reveals": ["Crewmitglied X verschwunden"],
             "choices": [
                 {"id": "c3", "label": "Kai befragen — vorsichtig nachhaken", "next_node_id": "node_004"},
                 {"id": "c4", "label": "Maras Tagebuch lesen — heimlich", "next_node_id": "node_005"},
             ],
             "quality_notes": ["Enhanced: komplexere Choice-Beschreibungen"],
-            "is_start": False,
-            "is_end": False,
         },
         "node_003": {
-            "id": "node_003",
-            "title": "Verlassener Korridor",
-            "type": "scene",
-            "act": 1,
-            "scene_goal": "Spieler findet Spuren eines Kampfes und hört ein seltsames Geräusch aus den Lüftungsschachten.",
-            "mood": "bedrohlich",
-            "location": "Korridor C-7",
-            "characters": [],
+            "scene_goal": "Spieler findet Spuren eines Kampfes und hört ein seltsames Geräusch.",
             "reveals": ["Kampfspuren", "Seltsames Geräusch"],
-            "choices": [
-                {"id": "c5", "label": "Zum Briefing eilen", "next_node_id": "node_002"},
-                {"id": "c6", "label": "Weiter erkunden — trotz des Geräuschs", "next_node_id": "node_005"},
-            ],
-            "quality_notes": ["Enhanced: Geräusch hinzugefügt für mehr Spannung"],
-            "is_start": False,
-            "is_end": False,
+            "quality_notes": ["Enhanced: auditives Element hinzugefügt"],
         },
         "node_004": {
-            "id": "node_004",
-            "title": "Kais Geheimnis",
-            "type": "scene",
-            "act": 2,
-            "scene_goal": "Kai wird verdächtigt und verrät etwas. Seine Hände zittern, als er von den Sabotagen spricht.",
-            "mood": "misstrauisch",
-            "location": "Maschinenraum",
-            "characters": ["Kai Chen"],
-            "reveals": ["Kai saboteurt Systeme"],
-            "choices": [
-                {"id": "c7", "label": "Kai konfrontieren — direkt und hart", "next_node_id": "node_006"},
-                {"id": "c8", "label": "Beweise sammeln — still weiter beobachten", "next_node_id": "node_005"},
-            ],
-            "quality_notes": ["Enhanced: Charaktertiefe durch Körpersprache"],
-            "is_start": False,
-            "is_end": False,
+            "quality_notes": ["Enhanced: Körpersprache für Charaktertiefe ergänzt"],
         },
         "node_005": {
-            "id": "node_005",
-            "title": "Maras Tagebuch",
-            "type": "scene",
-            "act": 2,
-            "scene_goal": "Spieler entdeckt die Infektion. Mara hatte ihre eigenen Notizen versteckt — voller Angst und Hoffnung.",
-            "mood": "schockierend",
-            "location": "Medbay",
-            "characters": ["Mara Singh"],
-            "reveals": ["Infektion durch Mars-Organismus"],
             "choices": [
-                {"id": "c9", "label": "Quarantäne auslösen — die Station riskieren", "next_node_id": "node_006"},
-                {"id": "c10", "label": "Heilmittel suchen — Zeit gegen Sicherheit", "next_node_id": "node_006"},
+                {"id": "c9", "label": "Quarantäne auslösen — die Station opfern", "next_node_id": "node_006"},
+                {"id": "c10", "label": "Heilmittel suchen — das Risiko eingehen", "next_node_id": "node_006"},
             ],
             "quality_notes": ["Enhanced: moralisches Dilemma in Choices"],
-            "is_start": False,
-            "is_end": False,
         },
         "node_006": {
-            "id": "node_006",
-            "title": "Das Mars-Mysterium",
-            "type": "scene",
-            "act": 3,
             "scene_goal": "Endgültige Konfrontation mit der Wahrheit. Die Station bebt, als sich tief unter dem Boden etwas regt.",
-            "mood": "enthüllend",
-            "location": "Tiefste Ebene",
-            "characters": ["Dr. Lena Voss", "Kai Chen", "Mara Singh"],
-            "reveals": ["Die Station ist Teil einer größeren Anlage"],
             "choices": [
                 {"id": "c11", "label": "Evakuierung einleiten — die Crew retten", "next_node_id": "node_007"},
                 {"id": "c12", "label": "Saboteur ausliefern — Gerechtigkeit vor Sicherheit", "next_node_id": "node_008"},
                 {"id": "c13", "label": "Dem Mysterium beitreten — das Unbekannte wählen", "next_node_id": "node_009"},
             ],
             "quality_notes": ["Enhanced: drei Choices mit moralischen Konflikten"],
-            "is_start": False,
-            "is_end": False,
         },
         "node_007": {
-            "id": "node_007",
-            "title": "Evakuierung",
-            "type": "end",
-            "act": 3,
             "scene_goal": "Die Crew entkommt, Station geht verloren. Im Rückspiegel glüht Helios wie ein sterbender Stern.",
-            "mood": "bittersüß",
-            "location": "Evakuierungsshuttle",
-            "characters": [],
-            "reveals": [],
-            "choices": [],
             "quality_notes": ["Enhanced: visuelle Abschlussmetapher"],
-            "is_start": False,
-            "is_end": True,
         },
         "node_008": {
-            "id": "node_008",
-            "title": "Gerechtigkeit",
-            "type": "end",
-            "act": 3,
             "scene_goal": "Saboteur wird überführt. Kai wird abgeführt, während Mara still weint.",
-            "mood": "gerecht",
-            "location": "Brücke",
-            "characters": [],
-            "reveals": [],
-            "choices": [],
             "quality_notes": ["Enhanced: emotionale Tiefe im Ende"],
-            "is_start": False,
-            "is_end": True,
         },
         "node_009": {
-            "id": "node_009",
-            "title": "Transformation",
-            "type": "end",
-            "act": 3,
             "scene_goal": "Alle werden Teil des Mysteriums. Ein warmes Licht umschließt die Crew — und sie hören auf, zu zögern.",
-            "mood": "fremdartig",
-            "location": "Tiefste Ebene",
-            "characters": [],
-            "reveals": [],
-            "choices": [],
             "quality_notes": ["Enhanced: atmosphärisches Ende"],
-            "is_start": False,
-            "is_end": True,
         },
     },
-    "start_node_id": "node_001",
-}
-
-_MOCK_ENHANCEMENT_RESULT: dict[str, Any] = {
-    "graph": _MOCK_ENHANCEMENT_GRAPH,
+    "new_nodes": {},
+    "deleted_nodes": [],
     "changes": [
         "Alle Knoten: Atmosphäre und Sinnesbeschreibungen erweitert",
         "node_002: Choices mit subtileren Beschreibungen versehen",
@@ -931,6 +875,7 @@ class MockLLMService(LLMService):
         json_mode: bool = False,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         self._call_count += 1
@@ -1061,9 +1006,11 @@ class OpenAICompatibleProvider(LLMService):
         json_mode: bool = False,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        user_prompt = self._truncate_input(user_prompt, self.settings.llm_max_input_tokens)
+        input_limit = max_input_tokens or self.settings.llm_max_input_tokens
+        user_prompt = self._truncate_input(user_prompt, input_limit)
         max_tok = max_tokens or self.settings.llm_max_tokens
         temp = temperature if temperature is not None else self.settings.llm_temperature
 
@@ -1169,9 +1116,11 @@ class AzureOpenAILLMService(OpenAICompatibleProvider):
         json_mode: bool = False,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        user_prompt = self._truncate_input(user_prompt, self.settings.llm_max_input_tokens)
+        input_limit = max_input_tokens or self.settings.llm_max_input_tokens
+        user_prompt = self._truncate_input(user_prompt, input_limit)
         max_tok = max_tokens or self.settings.llm_max_tokens
         temp = temperature if temperature is not None else self.settings.llm_temperature
 
@@ -1253,9 +1202,11 @@ class OllamaLLMService(LLMService):
         json_mode: bool = False,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        max_input_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        user_prompt = self._truncate_input(user_prompt, self.settings.llm_max_input_tokens)
+        input_limit = max_input_tokens or self.settings.llm_max_input_tokens
+        user_prompt = self._truncate_input(user_prompt, input_limit)
         max_tok = max_tokens or self.settings.llm_max_tokens
         temp = temperature if temperature is not None else self.settings.llm_temperature
 
