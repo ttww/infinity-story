@@ -166,6 +166,20 @@
         .btn-split:hover { background: #6d28d9; }
         .btn-template { background: #0891b2; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
         .btn-template:hover { background: #0e7490; }
+
+        /* ── Loading spinner for action buttons ── */
+        .elb-spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: elb-spin 0.6s linear infinite;
+            vertical-align: middle;
+            margin-right: 0.25rem;
+        }
+        @keyframes elb-spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -174,21 +188,21 @@
         <span class="badge badge-{{ draft.status }}">{{ draft.status }}</span>
     </div>
     <div class="container">
-        <div class="actions-bar">
-            <form method="POST" action="/admin/draft/{{ draft.id }}/review" style="display:inline">
-                <button class="btn btn-secondary" type="submit">🔍 Review</button>
+        <div class="actions-bar" id="actions-bar">
+            <form method="POST" action="/admin/draft/{{ draft.id }}/review" style="display:inline" id="form-review">
+                <button class="btn btn-secondary" type="submit" id="btn-review">🔍 Review</button>
             </form>
-            <form method="POST" action="/admin/draft/{{ draft.id }}/repair" style="display:inline">
-                <button class="btn btn-secondary" type="submit">🔧 Repair</button>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/repair" style="display:inline" id="form-repair">
+                <button class="btn btn-secondary" type="submit" id="btn-repair">🔧 Repair</button>
             </form>
-            <form method="POST" action="/admin/draft/{{ draft.id }}/validate" style="display:inline">
-                <button class="btn btn-secondary" type="submit">✅ Validate</button>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/validate" style="display:inline" id="form-validate">
+                <button class="btn btn-secondary" type="submit" id="btn-validate">✅ Validate</button>
             </form>
-            <form method="POST" action="/admin/draft/{{ draft.id }}/approve" style="display:inline">
-                <button class="btn btn-secondary" type="submit" {% if draft.status != 'validated' %}disabled{% endif %}>👍 Approve</button>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/approve" style="display:inline" id="form-approve">
+                <button class="btn btn-secondary" type="submit" id="btn-approve" {% if draft.status != 'validated' %}disabled{% endif %}>👍 Approve</button>
             </form>
-            <form method="POST" action="/admin/draft/{{ draft.id }}/publish" style="display:inline">
-                <button class="btn btn-success" type="submit" {% if not eligibility.eligible %}disabled{% endif %}>🚀 Publish</button>
+            <form method="POST" action="/admin/draft/{{ draft.id }}/publish" style="display:inline" id="form-publish">
+                <button class="btn btn-success" type="submit" id="btn-publish" {% if not eligibility.eligible %}disabled{% endif %}>🚀 Publish</button>
             </form>
             <a href="/admin/draft/{{ draft.id }}/simulate" class="btn">▶ Simulate</a>
             <button class="btn" style="background: #7c3aed;" onclick="showEnhanceModal()">✨ Vertiefen</button>
@@ -468,6 +482,57 @@
         // ── Core constants (must be defined before any function calls) ──
         const draftId = '{{ draft.id }}';
         window.draftId = draftId;
+
+        // ── AJAX action buttons (review, repair, validate, approve, publish) ──
+        // Converts standard POST forms to AJAX with loading state + auto-refresh
+        (function() {
+            const actions = ['review', 'repair', 'validate', 'approve', 'publish'];
+            actions.forEach(function(action) {
+                const form = document.getElementById('form-' + action);
+                const btn = document.getElementById('btn-' + action);
+                if (!form || !btn) return;
+
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (btn.disabled) return;
+
+                    // Set loading state
+                    const originalText = btn.textContent;
+                    btn.disabled = true;
+                    btn.style.opacity = '0.6';
+                    btn.innerHTML = '⏳ ' + originalText.replace(/[^\u4e00-\u9fffA-Za-z\u00c4\u00e4\u00d6\u00f6\u00dc\u00fc\u00df ]/g, '').trim() + '...';
+
+                    // Show toast
+                    if (typeof showToast === 'function') showToast(action.charAt(0).toUpperCase() + action.slice(1) + ' läuft...', 'info');
+
+                    // Submit via fetch (follows redirect automatically)
+                    fetch(form.action, {
+                        method: 'POST',
+                        redirect: 'follow',
+                    }).then(function(resp) {
+                        // The endpoint returns 303 redirect to /admin/draft/{id}
+                        // After following, we get the updated page HTML
+                        if (resp.redirected || resp.ok) {
+                            showToast(action.charAt(0).toUpperCase() + action.slice(1) + ' abgeschlossen', 'success');
+                            // Reload page to show updated data
+                            setTimeout(function() { window.location.reload(); }, 500);
+                        } else {
+                            resp.text().then(function(txt) {
+                                showToast('Fehler: ' + (txt.substring(0, 100) || 'HTTP ' + resp.status), 'error');
+                            });
+                            btn.disabled = false;
+                            btn.style.opacity = '';
+                            btn.textContent = originalText;
+                        }
+                    }).catch(function(err) {
+                        showToast('Netzwerkfehler: ' + err.message, 'error');
+                        btn.disabled = false;
+                        btn.style.opacity = '';
+                        btn.textContent = originalText;
+                    });
+                });
+            });
+        })();
 
         // ── Toast notification system ──
         function showToast(message, type = 'success') {
@@ -796,11 +861,11 @@
         async function deleteNode(nodeId) {
             if (!confirm(`Delete node '${nodeId}'? This will create a new version.`)) return;
             try {
-                const resp = await fetch(`/admin/draft/${draftId}/nodes/${nodeId}/delete`, { method: 'POST' });
-                if (resp.ok) {
+                const resp = await fetch(`/admin/draft/${draftId}/nodes/${nodeId}/delete`, { method: 'POST', redirect: 'follow' });
+                if (resp.ok || resp.redirected) {
                     showToast(`Node '${nodeId}' deleted`, 'success');
                     closeNodeDetail();
-                    setTimeout(() => location.reload(), 600);
+                    setTimeout(() => location.reload(), 400);
                 } else {
                     const err = await resp.text();
                     showToast(`Error: ${err}`, 'error');
@@ -815,10 +880,10 @@
             try {
                 const formData = new FormData();
                 formData.append('instruction', instruction);
-                const resp = await fetch(`/admin/draft/${draftId}/nodes/${nodeId}/regenerate`, { method: 'POST', body: formData });
-                if (resp.ok) {
+                const resp = await fetch(`/admin/draft/${draftId}/nodes/${nodeId}/regenerate`, { method: 'POST', body: formData, redirect: 'follow' });
+                if (resp.ok || resp.redirected) {
                     showToast(`Node '${nodeId}' re-generated`, 'success');
-                    setTimeout(() => location.reload(), 600);
+                    setTimeout(() => location.reload(), 400);
                 } else {
                     const err = await resp.text();
                     showToast(`Error: ${err}`, 'error');
@@ -844,10 +909,11 @@
             const formData = new FormData(form);
             showToast('Saving…', 'info');
             try {
-                const resp = await fetch(form.action, { method: 'POST', body: formData });
+                const resp = await fetch(form.action, { method: 'POST', body: formData, redirect: 'follow' });
                 if (resp.ok) {
                     showToast('Node saved successfully', 'success');
                     await refreshNodeDetail(nodeId);
+                    setTimeout(() => location.reload(), 400);
                 } else {
                     const err = await resp.text();
                     showToast(`Error: ${err}`, 'error');
@@ -863,10 +929,11 @@
             const formData = new FormData(form);
             showToast('Saving choice…', 'info');
             try {
-                const resp = await fetch(form.action, { method: 'POST', body: formData });
+                const resp = await fetch(form.action, { method: 'POST', body: formData, redirect: 'follow' });
                 if (resp.ok) {
                     showToast('Choice saved successfully', 'success');
                     await refreshNodeDetail(nodeId);
+                    setTimeout(() => location.reload(), 400);
                 } else {
                     const err = await resp.text();
                     showToast(`Error: ${err}`, 'error');
@@ -881,11 +948,11 @@
             const formData = new FormData(form);
             showToast('Adding node…', 'info');
             try {
-                const resp = await fetch(form.action, { method: 'POST', body: formData });
-                if (resp.ok) {
+                const resp = await fetch(form.action, { method: 'POST', body: formData, redirect: 'follow' });
+                if (resp.ok || resp.redirected) {
                     showToast('Node added successfully', 'success');
                     closeAddNodeModal();
-                    setTimeout(() => location.reload(), 600);
+                    setTimeout(() => location.reload(), 400);
                 } else {
                     const err = await resp.text();
                     showToast(`Error: ${err}`, 'error');
@@ -1010,6 +1077,164 @@
 
         function escapeAttr(str) {
             return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // ── AJAX form submission for action buttons (Review, Repair, Validate, Approve, Publish) ──
+        // Intercepts form POSTs in the actions bar to provide loading state + immediate event log feedback.
+        // Without this, the browser blocks on the synchronous form POST and the user sees no progress.
+        const ACTION_LABELS = {
+            'form-review': '🔍 Review läuft…',
+            'form-repair': '🔧 Repair läuft…',
+            'form-validate': '✅ Validation läuft…',
+            'form-approve': '👍 Approve läuft…',
+            'form-publish': '🚀 Publish läuft…',
+        };
+
+        document.querySelectorAll('#actions-bar form').forEach(form => {
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const formId = form.id;
+                const btn = form.querySelector('button[type="submit"]');
+                if (!btn || btn.disabled) return;
+
+                // Store original button content
+                const originalHTML = btn.innerHTML;
+                const loadingText = ACTION_LABELS[formId] || 'Läuft…';
+
+                // Disable button + show loading state
+                btn.disabled = true;
+                btn.innerHTML = '<span class="elb-spinner"></span> ' + loadingText;
+                btn.style.opacity = '0.6';
+
+                // Disable all other action buttons too
+                document.querySelectorAll('#actions-bar button[type="submit"]').forEach(b => {
+                    if (b !== btn) b.disabled = true;
+                });
+
+                // Expand event log bar immediately if it has an expand function
+                const elbBody = document.getElementById('elb-body');
+                if (elbBody && elbBody.classList.contains('hidden')) {
+                    const elbHeader = document.getElementById('elb-header');
+                    if (elbHeader) elbHeader.click();
+                }
+
+                // Show toast
+                showToast(loadingText, 'info');
+
+                try {
+                    const resp = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        redirect: 'follow',
+                    });
+
+                    if (resp.ok) {
+                        // Success — reload page to show updated data
+                        showToast('Fertig! Seite wird neu geladen…', 'success');
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        // Error
+                        const errText = await resp.text();
+                        showToast('Fehler: ' + errText.substring(0, 200), 'error');
+                        // Re-enable button
+                        btn.disabled = false;
+                        btn.innerHTML = originalHTML;
+                        btn.style.opacity = '';
+                        document.querySelectorAll('#actions-bar button[type="submit"]').forEach(b => {
+                            b.disabled = false;
+                        });
+                    }
+                } catch(err) {
+                    showToast('Netzwerkfehler: ' + err.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalHTML;
+                    btn.style.opacity = '';
+                    document.querySelectorAll('#actions-bar button[type="submit"]').forEach(b => {
+                        b.disabled = false;
+                    });
+                }
+            });
+        });
+
+        // ── Enhancement form AJAX submission ──
+        const enhanceForm = document.getElementById('enhance-form');
+        if (enhanceForm) {
+            enhanceForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const btn = enhanceForm.querySelector('button[type="submit"]');
+                if (!btn || btn.disabled) return;
+
+                const originalHTML = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="elb-spinner"></span> ✨ Vertiefen läuft…';
+                btn.style.opacity = '0.6';
+
+                // Expand event log
+                const elbBody = document.getElementById('elb-body');
+                if (elbBody && elbBody.classList.contains('hidden')) {
+                    const elbHeader = document.getElementById('elb-header');
+                    if (elbHeader) elbHeader.click();
+                }
+
+                showToast('✨ Story-Vertiefung läuft…', 'info');
+
+                try {
+                    const resp = await fetch(enhanceForm.action, {
+                        method: 'POST',
+                        body: new FormData(enhanceForm),
+                        redirect: 'follow',
+                    });
+
+                    if (resp.ok) {
+                        showToast('Vertiefung abgeschlossen! Seite wird neu geladen…', 'success');
+                        closeEnhanceModal();
+                        setTimeout(() => location.reload(), 800);
+                    } else {
+                        const errText = await resp.text();
+                        showToast('Fehler: ' + errText.substring(0, 200), 'error');
+                        btn.disabled = false;
+                        btn.innerHTML = originalHTML;
+                        btn.style.opacity = '';
+                    }
+                } catch(err) {
+                    showToast('Netzwerkfehler: ' + err.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalHTML;
+                    btn.style.opacity = '';
+                }
+            });
+        }
+
+        // ── Delete form AJAX submission ──
+        const deleteForm = document.querySelector('form[action*="/delete"]');
+        if (deleteForm) {
+            // Delete has a confirm dialog via onsubmit attribute — that runs first.
+            // Only proceed if the confirm passed (e.defaultPrevented === false).
+            deleteForm.addEventListener('submit', async function(e) {
+                if (e.defaultPrevented) return; // user clicked Cancel in confirm dialog
+                e.preventDefault();
+                const btn = deleteForm.querySelector('button[type="submit"]');
+                if (!btn || btn.disabled) return;
+                const originalHTML = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Lösche…';
+                try {
+                    const resp = await fetch(deleteForm.action, { method: 'POST', redirect: 'follow' });
+                    if (resp.ok) {
+                        showToast('Story gelöscht. Weiterleitung…', 'success');
+                        setTimeout(() => window.location.href = '/admin/', 800);
+                    } else {
+                        const errText = await resp.text();
+                        showToast('Fehler: ' + errText.substring(0, 200), 'error');
+                        btn.disabled = false;
+                        btn.innerHTML = originalHTML;
+                    }
+                } catch(err) {
+                    showToast('Fehler: ' + err.message, 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalHTML;
+                }
+            });
         }
 
         // ── Version history ──
