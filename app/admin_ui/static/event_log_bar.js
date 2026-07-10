@@ -334,6 +334,10 @@
         // On list pages, start collapsed
         if (draftId) {
             expand();
+        } else {
+            // Even when collapsed, connect to SSE so events are buffered
+            // and ready to display when the user expands
+            connect();
         }
     }
 
