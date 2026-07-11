@@ -126,6 +126,10 @@
         .btn-regen:hover { background: #047857; }
         .btn-del { background: #dc2626; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
         .btn-del:hover { background: #b91c1c; }
+        .btn-fixthis { background: #059669; padding: 0.3rem 0.7rem; font-size: 0.75rem; float: right; }
+        .btn-fixthis:hover { background: #047857; }
+        .btn-fixthis:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-fixthis .elb-spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: elb-spin 0.6s linear infinite; vertical-align: middle; margin-right: 4px; }
         .edit-form { background: #111; border-radius: 6px; padding: 1rem; margin-top: 0.5rem; }
         .edit-form label { display: block; color: #888; font-size: 0.75rem; margin-bottom: 0.2rem; margin-top: 0.5rem; }
         .edit-form input, .edit-form textarea, .edit-form select { width: 100%; background: #0a0a14; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; padding: 0.4rem; font-size: 0.85rem; }
@@ -321,7 +325,13 @@
                 {% if review.issues %}
                 <ul class="issues" style="margin-top: 1rem;">
                     {% for issue in review.issues %}
-                    <li class="issue-{{ issue.severity }}">
+                    <li class="issue-{{ issue.severity }}" id="finding-{{ loop.index }}">
+                        <button type="button" class="btn btn-fixthis"
+                            data-finding-id="{{ loop.index }}"
+                            data-severity="{{ issue.severity }}"
+                            data-node-id="{{ issue.node_id|default('') }}"
+                            data-problem="{{ issue.problem|e }}"
+                            id="fixthis-btn-{{ loop.index }}">🔧 FixThis</button>
                         <strong>[{{ issue.severity|upper }}]</strong> {{ issue.problem }}
                         {% if issue.suggestion %}<br><em>{{ issue.suggestion }}</em>{% endif %}
                     </li>
@@ -613,6 +623,77 @@
                 setTimeout(() => { if (msgEl.className.includes('ok')) { msgEl.textContent = ''; } }, 3000);
             });
         }
+
+        // ── FixThis button handler for review findings ──
+        // Sends the finding identifier to the backend, then keeps the button
+        // loading until targeted repair plus re-review completes.
+        (function() {
+            document.addEventListener('click', function(e) {
+                const btn = e.target.closest('.btn-fixthis');
+                if (!btn || btn.disabled) return;
+
+                const findingId = btn.dataset.findingId;
+                const finding = {
+                    id: findingId,
+                    severity: btn.dataset.severity,
+                    node_id: btn.dataset.nodeId || null,
+                    problem: btn.dataset.problem || '',
+                };
+
+                // Emit custom event for observers and call the backend handler.
+                document.dispatchEvent(new CustomEvent('fixthis:clicked', {
+                    detail: { finding: finding }
+                }));
+
+                console.log('[FixThis] Clicked:', finding);
+
+                btn.disabled = true;
+                btn.innerHTML = '<span class="elb-spinner"></span> Fixing…';
+                btn.dataset.originalText = '🔧 FixThis';
+
+                if (typeof showToast === 'function') {
+                    showToast('🔧 FixThis für Finding #' + findingId + ' — Reparatur und Re-Review laufen…', 'info');
+                }
+
+                fetch('/admin/draft/' + draftId + '/fix-issue', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({finding_id: parseInt(findingId, 10), finding: finding}),
+                })
+                .then(function(r) {
+                    if (!r.ok) {
+                        return r.json().catch(function() { return {}; }).then(function(data) {
+                            throw new Error(data.detail || ('HTTP ' + r.status));
+                        });
+                    }
+                    return r.json();
+                })
+                .then(function(data) {
+                    window.resolveFixThis(findingId);
+                    if (typeof showToast === 'function') {
+                        const issueCount = data.review && data.review.issues ? data.review.issues.length : 0;
+                        showToast('✅ FixThis abgeschlossen — Re-Review: ' + issueCount + ' offene Findings', 'success');
+                    }
+                    setTimeout(function() { window.location.reload(); }, 700);
+                })
+                .catch(function(err) {
+                    window.resolveFixThis(findingId);
+                    if (typeof showToast === 'function') {
+                        showToast('❌ FixThis fehlgeschlagen: ' + err.message, 'error');
+                    }
+                    console.error('[FixThis] Failed:', err);
+                });
+            });
+        })();
+
+        // Expose a global resolver so downstream code can clear the loading state
+        window.resolveFixThis = function(findingId) {
+            const btn = document.getElementById('fixthis-btn-' + findingId);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = btn.dataset.originalText || '🔧 FixThis';
+            }
+        };
 
         // ── AJAX action buttons (review, repair, validate, approve, publish) ──
         // Converts standard POST forms to AJAX with loading state + auto-refresh

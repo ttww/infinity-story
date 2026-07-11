@@ -361,6 +361,41 @@ class StoryReviewReportRepository:
     def parse_issues(self, report: StoryReviewReport) -> list[dict[str, Any]]:
         return json.loads(report.issues_json)
 
+    async def get_by_id(self, report_id: str) -> StoryReviewReport | None:
+        result = await self.session.execute(
+            select(StoryReviewReport).where(StoryReviewReport.id == report_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def update_issue_status(
+        self,
+        report_id: str,
+        issue_index: int,
+        status: str,
+    ) -> StoryReviewReport | None:
+        """Set fix lifecycle status on one issue inside a review report.
+
+        ``issue_index`` is zero-based. The report row remains the source of
+        truth; only the issue dict in ``issues_json`` is updated.
+        """
+        report = await self.get_by_id(report_id)
+        if report is None:
+            return None
+
+        issues = self.parse_issues(report)
+        if issue_index < 0 or issue_index >= len(issues):
+            raise IndexError(f"Issue index {issue_index} out of range")
+
+        issue = issues[issue_index]
+        issue["fix_status"] = status
+        if status == "fix_requested":
+            issue["fix_requested_at"] = _now().isoformat()
+
+        report.issues_json = _dump(issues)
+        await self.session.commit()
+        await self.session.refresh(report)
+        return report
+
 
 # ── ValidationReportRepository ──────────────────────────────────────────
 

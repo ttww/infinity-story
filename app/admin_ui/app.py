@@ -455,6 +455,127 @@ async def run_repair(draft_id: str, session: AsyncSession = Depends(get_session)
     return RedirectResponse(url=f"/admin/draft/{draft_id}", status_code=303)
 
 
+@admin_app.post("/draft/{draft_id}/fix-issue", response_class=JSONResponse)
+async def fix_issue(draft_id: str, request: Request, session: AsyncSession = Depends(get_session)):
+    """Apply a targeted FixThis repair for one review finding and re-review."""
+    draft, version, draft_repo, version_repo = await _get_draft_and_version(session, draft_id)
+    _ = draft_repo
+    if version is None:
+        event_log.emit_error("repair", "fix_issue", f"No version found for draft {draft_id}", draft_id=draft_id)
+        raise HTTPException(status_code=404, detail="No version found")
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        payload = {}
+
+    finding_id = payload.get("finding_id") or payload.get("id") or payload.get("issue_id")
+    try:
+        issue_index = int(finding_id) - 1
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="finding_id must be a one-based integer")
+
+    review_repo = StoryReviewReportRepository(session)
+    reviews = await review_repo.list_by_draft(draft_id)
+    if not reviews:
+        event_log.emit_error("repair", "fix_issue", f"No review found for draft {draft_id}", draft_id=draft_id)
+        raise HTTPException(status_code=400, detail="Run review first")
+
+    source_report = reviews[-1]
+    source_issues = review_repo.parse_issues(source_report)
+    if issue_index < 0 or issue_index >= len(source_issues):
+        raise HTTPException(status_code=404, detail=f"Finding {finding_id} not found")
+
+    event_log.emit_start(
+        "repair",
+        "fix_issue",
+        f"FixThis finding #{issue_index + 1} on '{draft.title}'",
+        draft_id=draft_id,
+        detail={"report_id": source_report.id, "finding_id": issue_index + 1},
+    )
+
+    requested_report = await review_repo.update_issue_status(source_report.id, issue_index, "fix_requested")
+    if requested_report is None:
+        raise HTTPException(status_code=404, detail="Review report not found")
+    requested_issues = review_repo.parse_issues(requested_report)
+    target_issue = requested_issues[issue_index]
+
+    filtered_review = {
+        "score": source_report.score,
+        "issues": [target_issue],
+        "summary": source_report.summary or "Targeted FixThis repair",
+    }
+    graph_data = version_repo.parse_graph(version)
+    outline = version_repo.parse_outline(version) or {}
+
+    try:
+        repair_agent = StoryRepairAgent()
+        repair_result = await repair_agent.repair(graph_data, filtered_review)
+        new_graph = repair_result.get("graph", graph_data)
+
+        new_version = await version_repo.create(
+            draft_id=draft_id,
+            graph=new_graph,
+            outline=outline,
+            created_by="repair_agent",
+            notes=f"FixThis #{issue_index + 1}: {repair_result.get('summary', 'Targeted repair')}"[:500],
+        )
+
+        critic = StoryCriticAgent()
+        review_result = await critic.review(outline, new_graph)
+        new_report = await review_repo.create(
+            draft_id=draft_id,
+            version_id=new_version.id,
+            score=review_result["score"],
+            issues=review_result.get("issues", []),
+            summary=review_result.get("summary"),
+        )
+
+        await review_repo.update_issue_status(source_report.id, issue_index, "fixed")
+
+        from sqlalchemy import update as sa_update
+        from app.models.story_draft import StoryDraft as _SD
+
+        await session.execute(
+            sa_update(_SD)
+            .where(_SD.id == draft_id)
+            .values(quality_score=review_result["score"])
+        )
+        await session.commit()
+    except Exception as exc:
+        event_log.emit_error("repair", "fix_issue", f"FixThis failed: {exc}", draft_id=draft_id)
+        raise
+
+    new_issues = review_result.get("issues", [])
+    event_log.emit_done(
+        "repair",
+        "fix_issue",
+        f"FixThis #{issue_index + 1} complete; re-review score {review_result['score']} with {len(new_issues)} issues",
+        draft_id=draft_id,
+        detail={
+            "source_report_id": source_report.id,
+            "new_report_id": new_report.id,
+            "new_version_id": new_version.id,
+            "finding_id": issue_index + 1,
+            "score": review_result["score"],
+            "issues": len(new_issues),
+        },
+    )
+
+    return JSONResponse(content={
+        "ok": True,
+        "finding_id": issue_index + 1,
+        "fix_status": "fixed",
+        "version_id": new_version.id,
+        "report_id": new_report.id,
+        "review": {
+            "score": review_result["score"],
+            "issues": new_issues,
+            "summary": review_result.get("summary"),
+        },
+    })
+
+
 @admin_app.post("/draft/{draft_id}/validate")
 async def run_validation(draft_id: str, session: AsyncSession = Depends(get_session)):
     """Run validation."""
