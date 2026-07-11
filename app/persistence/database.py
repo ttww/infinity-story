@@ -140,8 +140,37 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+async def _migrate_sqlite_schema(conn) -> None:
+    """Apply lightweight SQLite migrations for existing databases.
+
+    ``Base.metadata.create_all()`` creates missing tables but intentionally does
+    not ALTER existing tables. Keep small additive migrations here so persisted
+    SQLite deployments stay compatible when ORM columns are added.
+    """
+    if conn.dialect.name != "sqlite":
+        return
+
+    result = await conn.exec_driver_sql("PRAGMA table_info(story_drafts)")
+    existing_columns = {row[1] for row in result}
+    if not existing_columns:
+        return
+
+    required_columns = {
+        "min_sentences_per_node": 3,
+        "max_sentences_per_node": 8,
+        "min_node_connections": 2,
+        "max_node_connections": 5,
+    }
+    for column_name, default_value in required_columns.items():
+        if column_name not in existing_columns:
+            await conn.exec_driver_sql(
+                "ALTER TABLE story_drafts "
+                f"ADD COLUMN {column_name} INTEGER NOT NULL DEFAULT {default_value}"
+            )
+
+
 async def init_db() -> None:
-    """Create all tables. Call on startup."""
+    """Create all tables and apply lightweight migrations. Call on startup."""
     global _engine, _session_factory
     # Reset globals if they exist (for test isolation)
     if _engine is not None:
@@ -155,6 +184,7 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_sqlite_schema(conn)
 
 
 async def close_db() -> None:
