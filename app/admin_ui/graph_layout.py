@@ -214,7 +214,7 @@ def _identify_problematic_nodes(nodes_data: dict[str, Any]) -> set[str]:
     - Empty scene_goal
     - Empty quality_notes
     - Dangling choice references (next_node_id points to non-existent node)
-    - No choices (and not an end node)
+    - Dangling node-level next_node_id (auto_advance pointing to missing node)
     """
     problematic = set()
     node_ids = set(nodes_data.keys())
@@ -238,6 +238,12 @@ def _identify_problematic_nodes(nodes_data: dict[str, Any]) -> set[str]:
             if next_id and next_id not in node_ids:
                 problematic.add(nid)
                 break
+
+        # Dangling node-level next_node_id (auto_advance nodes)
+        node_next = node.get("next_node_id")
+        if node_next and node_next not in node_ids:
+            problematic.add(nid)
+            continue
 
         # Empty label on choices
         for choice in node.get("choices", []) or []:

@@ -66,6 +66,10 @@ def _draft_to_summary(draft: Any) -> DraftSummaryResponse:
         target_age=draft.target_age,
         status=draft.status,
         quality_score=draft.quality_score,
+        min_sentences_per_node=draft.min_sentences_per_node,
+        max_sentences_per_node=draft.max_sentences_per_node,
+        min_node_connections=draft.min_node_connections,
+        max_node_connections=draft.max_node_connections,
         version_count=len(draft.versions) if draft.versions else 0,
         created_at=draft.created_at,
         approved_at=draft.approved_at,
@@ -105,6 +109,10 @@ def _draft_to_detail(draft: Any, version_repo: StoryDraftVersionRepository) -> D
         status=draft.status,
         quality_score=draft.quality_score,
         brief=brief,
+        min_sentences_per_node=draft.min_sentences_per_node,
+        max_sentences_per_node=draft.max_sentences_per_node,
+        min_node_connections=draft.min_node_connections,
+        max_node_connections=draft.max_node_connections,
         created_at=draft.created_at,
         updated_at=draft.updated_at,
         approved_at=draft.approved_at,
@@ -150,6 +158,10 @@ async def create_draft(
         language=brief.language,
         target_age=brief.target_age,
         brief=brief.to_storage_dict(),
+        min_sentences_per_node=brief.min_sentences_per_node,
+        max_sentences_per_node=brief.max_sentences_per_node,
+        min_node_connections=brief.min_node_connections,
+        max_node_connections=brief.max_node_connections,
     )
 
     # 2. Create a generation job and mark it running
@@ -164,7 +176,19 @@ async def create_draft(
     try:
         agent = get_authoring_agent(dummy=True)
         outline = await agent.generate_outline(brief.to_storage_dict())
-        graph = await agent.generate_graph(outline)
+
+        # StoryAuthoringAgent supports limit kwargs; DummyStoryAuthoringAgent
+        # accepts only outline (kwargs are ignored at runtime by duck-typing).
+        try:
+            graph = await agent.generate_graph(  # type: ignore[call-arg]
+                outline,
+                min_sentences=brief.min_sentences_per_node,
+                max_sentences=brief.max_sentences_per_node,
+                min_node_connections=brief.min_node_connections,
+                max_node_connections=brief.max_node_connections,
+            )
+        except TypeError:
+            graph = await agent.generate_graph(outline)
 
         # Store the first version
         await version_repo.create(

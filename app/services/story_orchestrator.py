@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import string
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -71,6 +72,8 @@ class OrchestratorResult:
     next_node_id: str | None = None
     updated_world_state: dict[str, Any] = field(default_factory=dict)
     is_ending: bool = False
+    mode: str = "multi_choice"
+    auto_advance_delay_ms: int | None = None
 
 
 # ── Choice interpretation ────────────────────────────────────────
@@ -107,8 +110,8 @@ class ChoiceInterpreter:
             if 0 <= idx < len(choices):
                 return choices[idx].get("id"), False
 
-        # Letter selection (a, b, c, d)
-        if len(text) == 1 and text in "abcd":
+        # Letter selection (a, b, c, d, e, f, ...)
+        if len(text) == 1 and text in string.ascii_lowercase:
             idx = ord(text) - ord("a")
             if 0 <= idx < len(choices):
                 return choices[idx].get("id"), False
@@ -214,15 +217,69 @@ class StoryOrchestrator:
         1. Interpret the user input (choice or free-form)
         2. Find the next node (if a predefined choice was selected)
         3. Generate scene for the NEXT node (so the user sees the new
-           scene and its choices, not the old node's choices)
+           scene and the next node's choices, not the old node's choices)
         4. Apply state updates
         5. Return the next node id so the caller can update the session
 
         For free-form input (no matching choice), the scene is generated
         for the current node as before.
+
+        Auto-advance: when the current node has 0 choices and a
+        next_node_id, the orchestrator reads next_node_id and advances
+        without requiring user input.
         """
         node = context.current_node
         choices = context.available_choices or node.get("choices", [])
+
+        # ── Auto-advance: 0 choices with next_node_id ──────────────
+        if not choices:
+            auto_next = node.get("next_node_id")
+            is_end = node.get("is_end", False) or node.get("type") == "end"
+            if is_end or not auto_next:
+                # Ending node — generate final scene
+                scene = await self.llm_service.generate_scene(context)
+                updated_state = self._state_updater.apply(
+                    context.world_state,
+                    scene.state_updates,
+                )
+                return OrchestratorResult(
+                    scene=scene,
+                    next_node_id=None,
+                    updated_world_state=updated_state,
+                    is_ending=True,
+                    mode="ending",
+                )
+            # Auto-advance to the next node
+            if scenario:
+                from app.story.scenario_loader import get_node
+                next_node = get_node(scenario, auto_next)
+                if next_node:
+                    next_ctx = StoryContext(
+                        session_id=context.session_id,
+                        current_node=next_node,
+                        world_state=context.world_state,
+                        user_input=None,
+                        scenario_id=context.scenario_id,
+                        available_choices=next_node.get("choices", []),
+                        history=context.history,
+                    )
+                    scene = await self.llm_service.generate_scene(next_ctx)
+                    updated_state = self._state_updater.apply(
+                        next_ctx.world_state,
+                        scene.state_updates,
+                    )
+                    next_is_end = next_node.get("is_end", False) or next_node.get("type") == "end"
+                    next_choices = next_node.get("choices", [])
+                    next_mode = self._derive_mode(next_choices, next_is_end, next_node.get("next_node_id"))
+                    return OrchestratorResult(
+                        scene=scene,
+                        next_node_id=auto_next,
+                        updated_world_state=updated_state,
+                        is_ending=next_is_end,
+                        mode=next_mode,
+                        auto_advance_delay_ms=next_node.get("auto_advance_delay_ms"),
+                    )
+            # No scenario — fall through to generate for current node
 
         # Step 1: Interpret input
         choice_id, is_free = self._interpreter.interpret(
@@ -260,11 +317,15 @@ class StoryOrchestrator:
                     scene.state_updates,
                 )
                 is_ending = next_node.get("is_end", False) or next_node.get("type") == "end"
+                next_choices = next_node.get("choices", [])
+                next_mode = self._derive_mode(next_choices, is_ending, next_node.get("next_node_id"))
                 return OrchestratorResult(
                     scene=scene,
                     next_node_id=selected_next_node,
                     updated_world_state=updated_state,
                     is_ending=is_ending,
+                    mode=next_mode,
+                    auto_advance_delay_ms=next_node.get("auto_advance_delay_ms"),
                 )
 
         # Step 3: Free-form input or no scenario — generate for current node
@@ -282,11 +343,16 @@ class StoryOrchestrator:
         # Check if we've reached an ending
         is_ending = node.get("is_end", False) or node.get("type") == "end"
 
+        # Derive mode for the current response
+        mode = self._derive_mode(choices, is_ending, node.get("next_node_id"))
+
         return OrchestratorResult(
             scene=scene,
             next_node_id=next_node,
             updated_world_state=updated_state,
             is_ending=is_ending,
+            mode=mode,
+            auto_advance_delay_ms=node.get("auto_advance_delay_ms"),
         )
 
     async def generate_opening_scene(
@@ -313,6 +379,8 @@ class StoryOrchestrator:
 
         node = context.current_node
         is_ending = node.get("is_end", False) or node.get("type") == "end"
+        choices = node.get("choices", [])
+        mode = self._derive_mode(choices, is_ending, node.get("next_node_id"))
 
         # The opening scene stays on the start node so that the
         # user's choice (from the start node's choices) is matched
@@ -323,7 +391,19 @@ class StoryOrchestrator:
             next_node_id=None,
             updated_world_state=updated_state,
             is_ending=is_ending,
+            mode=mode,
+            auto_advance_delay_ms=node.get("auto_advance_delay_ms"),
         )
+
+    @staticmethod
+    def _derive_mode(
+        choices: list[dict[str, Any]],
+        is_end: bool,
+        next_node_id: str | None,
+    ) -> str:
+        """Derive the node mode from choice count and end status."""
+        from app.story.graph import derive_node_mode
+        return derive_node_mode(choices, is_end, next_node_id)
 
     def build_context(
         self,

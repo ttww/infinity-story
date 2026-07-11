@@ -56,6 +56,10 @@ class StoryDraftRepository:
         language: str = "de",
         target_age: str = "16+",
         brief: dict[str, Any] | None = None,
+        min_sentences_per_node: int = 3,
+        max_sentences_per_node: int = 8,
+        min_node_connections: int = 2,
+        max_node_connections: int = 5,
         draft_id: str | None = None,
     ) -> StoryDraft:
         """Create a new draft in ``DRAFT`` status."""
@@ -67,6 +71,10 @@ class StoryDraftRepository:
             language=language,
             target_age=target_age,
             brief_json=_dump(brief or {}),
+            min_sentences_per_node=min_sentences_per_node,
+            max_sentences_per_node=max_sentences_per_node,
+            min_node_connections=min_node_connections,
+            max_node_connections=max_node_connections,
             status=DraftStatus.DRAFT.value,
         )
         self.session.add(draft)

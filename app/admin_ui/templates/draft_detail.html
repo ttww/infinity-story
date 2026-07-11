@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <title>{{ draft.title }} — Infinity Story Admin</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -180,6 +181,53 @@
             margin-right: 0.25rem;
         }
         @keyframes elb-spin { to { transform: rotate(360deg); } }
+
+        /* ── Force graph edge enhancements ── */
+        .graph-svg .edge-path { transition: stroke 0.15s, stroke-width 0.15s; }
+        .graph-svg .edge-path.highlighted { stroke: #8b5cf6; stroke-width: 3; }
+        .graph-svg .edge-path.dimmed { opacity: 0.2; }
+        .graph-svg .edge-label { transition: fill 0.15s, opacity 0.15s; }
+        .graph-svg .edge-label.highlighted { fill: #c4b5fd; opacity: 1; }
+        .graph-svg .edge-label.dimmed { opacity: 0.15; }
+        .graph-svg .node-group { cursor: grab; }
+        .graph-svg .node-group:active { cursor: grabbing; }
+        .graph-svg .node-group .node-rect { transition: opacity 0.15s; }
+        .graph-svg .node-group.dimmed { opacity: 0.25; }
+        .graph-toolbar .btn-freeze { background: #4f46e5; color: #fff; min-width: 90px; }
+        .graph-toolbar .btn-freeze.frozen { background: #059669; }
+        .graph-tooltip {
+            position: absolute; pointer-events: none; background: #1a1a2e; border: 1px solid #8b5cf6;
+            border-radius: 6px; padding: 0.4rem 0.7rem; font-size: 0.75rem; color: #e0e0e0;
+            z-index: 500; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        /* ── Story Settings card (t_cd4d7480) ── */
+        .settings-form { display: flex; flex-direction: column; gap: 1rem; }
+        .settings-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .settings-field { display: flex; flex-direction: column; gap: 0.3rem; }
+        .settings-field label { color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        .settings-field input { width: 100%; padding: 0.5rem; background: #0a0a14; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; font-size: 0.95rem; }
+        .settings-field input:focus { outline: none; border-color: #8b5cf6; }
+        .settings-field input.invalid { border-color: #dc2626; background: #2a0a0a; }
+        .settings-actions { display: flex; align-items: center; gap: 0.75rem; }
+        .settings-msg { font-size: 0.8rem; }
+        .settings-msg.ok { color: #86efac; }
+        .settings-msg.err { color: #fca5a5; }
+        /* ── Limit adjustment dialog (t_598dd355) ── */
+        .limit-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9998; display: none; }
+        .limit-modal-overlay.active { display: flex; align-items: center; justify-content: center; }
+        .limit-modal { background: #12121e; border: 1px solid #333; border-radius: 8px; max-width: 700px; width: 90%; max-height: 85vh; overflow-y: auto; padding: 1.5rem; }
+        .limit-modal h3 { margin: 0 0 1rem 0; color: #e0e0e0; }
+        .limit-modal .warning-box { background: #2a1a0a; border: 1px solid #f59e0b; border-radius: 4px; padding: 0.75rem 1rem; margin-bottom: 1rem; color: #fbbf24; font-size: 0.85rem; }
+        .limit-modal .change-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+        .limit-modal .change-table th { text-align: left; color: #888; font-size: 0.75rem; text-transform: uppercase; padding: 0.4rem; border-bottom: 1px solid #333; }
+        .limit-modal .change-table td { padding: 0.4rem; border-bottom: 1px solid #222; color: #ccc; font-size: 0.85rem; }
+        .limit-modal .change-table .action-trimmed { color: #fca5a5; }
+        .limit-modal .change-table .action-extended { color: #86efac; }
+        .limit-modal .mode-select { display: flex; gap: 1rem; margin-bottom: 1rem; }
+        .limit-modal .mode-option { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; color: #ccc; font-size: 0.85rem; }
+        .limit-modal .mode-option input { cursor: pointer; }
+        .limit-modal .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
     </style>
 </head>
 <body>
@@ -226,6 +274,42 @@
                 {% if version %}
                 <div class="info-row"><span class="info-label">Version</span><span class="info-value">v{{ version.version_number }} ({{ version.created_by }})</span></div>
                 {% endif %}
+            </div>
+
+            <!-- Story Settings: sentence + connection bounds (t_cd4d7480) -->
+            <div class="card" id="story-settings-card">
+                <h2>Story Parameter</h2>
+                <div class="settings-form">
+                    <div class="settings-pair">
+                        <div class="settings-field">
+                            <label for="min_sentences_per_node">Min. Sätze/Node</label>
+                            <input type="number" id="min_sentences_per_node" name="min_sentences_per_node"
+                                   value="{{ draft.min_sentences_per_node }}" min="1" max="50">
+                        </div>
+                        <div class="settings-field">
+                            <label for="max_sentences_per_node">Max. Sätze/Node</label>
+                            <input type="number" id="max_sentences_per_node" name="max_sentences_per_node"
+                                   value="{{ draft.max_sentences_per_node }}" min="1" max="100">
+                        </div>
+                    </div>
+                    <div class="settings-pair">
+                        <div class="settings-field">
+                            <label for="min_node_connections">Min. Verbindungen</label>
+                            <input type="number" id="min_node_connections" name="min_node_connections"
+                                   value="{{ draft.min_node_connections }}" min="0" max="20">
+                        </div>
+                        <div class="settings-field">
+                            <label for="max_node_connections">Max. Verbindungen</label>
+                            <input type="number" id="max_node_connections" name="max_node_connections"
+                                   value="{{ draft.max_node_connections }}" min="0" max="50">
+                        </div>
+                    </div>
+                    <div class="settings-actions">
+                        <button type="button" class="btn" id="btn-save-settings" onclick="saveStorySettings()">💾 Speichern</button>
+                        <button type="button" class="btn" id="btn-check-limits" onclick="checkNodeLimits()">⚡ Auf Nodes anwenden</button>
+                        <span id="settings-msg" class="settings-msg"></span>
+                    </div>
+                </div>
             </div>
 
             <!-- Review Report -->
@@ -298,49 +382,30 @@
                         <button onclick="zoomGraph(0.83)">🔍- Zoom Out</button>
                         <button onclick="resetGraphView()">⟲ Reset</button>
                         <button onclick="fitGraphView()">⊞ Fit</button>
+                        <button class="btn-freeze" id="btn-freeze" onclick="toggleFreeze()">⏸ Freeze</button>
+                        <button onclick="reheatSimulation()" style="background: #7c3aed; color: #fff;">🔥 Reheat</button>
                         <button onclick="showAddNodeModal()" style="background: #4f46e5; color: #fff;">➕ Add Node</button>
                         <span class="zoom-level" id="zoom-level">100%</span>
                     </div>
                     <div class="graph-viewport" id="graph-viewport">
                         <svg class="graph-svg" id="graph-svg" width="{{ layout.svg_width }}" height="{{ layout.svg_height }}" viewBox="0 0 {{ layout.svg_width }} {{ layout.svg_height }}">
-                            <!-- Edges -->
-                            {% for edge in layout.edges %}
-                            <path class="edge-path {{ 'dangling' if edge.dangling }}"
-                                  d="M {{ edge.x1 }},{{ edge.y1 }} C {{ edge.cx1 }},{{ edge.cy1 }} {{ edge.cx2 }},{{ edge.cy2 }} {{ edge.x2 }},{{ edge.y2 }}"
-                                  marker-end="url(#arrowhead)" />
-                            <text class="edge-label" x="{{ (edge.x1 + edge.x2) / 2 }}" y="{{ (edge.y1 + edge.y2) / 2 - 5 }}">
-                                {{ edge.label[:25] }}{% if edge.label|length > 25 %}…{% endif %}
-                            </text>
-                            {% endfor %}
-
-                            <!-- Nodes -->
-                            {% for node in layout.nodes %}
-                            <g onclick="showNodeDetail('{{ node.id }}')" style="cursor: pointer;">
-                                <rect class="node-rect {{ 'node-problematic' if node.is_problematic else 'node-start' if node.is_start else 'node-end' if node.is_end else 'node-' ~ node.type }}"
-                                      x="{{ node.x }}" y="{{ node.y }}"
-                                      width="{{ node.width }}" height="{{ node.height }}" />
-                                <text class="node-icon" x="{{ node.x + node.width / 2 }}" y="{{ node.y + 15 }}">
-                                    {% if node.is_start %}▶️{% elif node.is_end %}🏁{% elif node.is_problematic %}⚠️{% else %}⬜{% endif %}
-                                </text>
-                                <text class="node-label" x="{{ node.x + node.width / 2 }}" y="{{ node.y + 33 }}">
-                                    {{ node.title[:20] }}{% if node.title|length > 20 %}…{% endif %}
-                                </text>
-                                <text class="node-sublabel" x="{{ node.x + node.width / 2 }}" y="{{ node.y + 48 }}">
-                                    Akt {{ node.act }} · {{ node.choice_count }} choices
-                                </text>
-                            </g>
-                            {% endfor %}
-
-                            <!-- Arrow marker definition -->
                             <defs>
-                                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="9" refY="3" orient="auto">
                                     <polygon points="0 0, 8 3, 0 6" fill="#555" />
                                 </marker>
-                                <marker id="arrowhead-dangling" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                <marker id="arrowhead-dangling" markerWidth="8" markerHeight="6" refX="9" refY="3" orient="auto">
                                     <polygon points="0 0, 8 3, 0 6" fill="#ef4444" />
                                 </marker>
+                                <marker id="arrowhead-highlight" markerWidth="8" markerHeight="6" refX="9" refY="3" orient="auto">
+                                    <polygon points="0 0, 8 3, 0 6" fill="#8b5cf6" />
+                                </marker>
                             </defs>
+                            <g id="zoom-layer">
+                                <g id="edges-layer"></g>
+                                <g id="nodes-layer"></g>
+                            </g>
                         </svg>
+                        <div class="graph-tooltip" id="graph-tooltip"></div>
                     </div>
                     <div class="graph-legend">
                         <div class="legend-item"><div class="legend-swatch" style="background: #14532d; border-color: #22c55e;"></div>Start</div>
@@ -348,7 +413,7 @@
                         <div class="legend-item"><div class="legend-swatch" style="background: #1e1b3a; border-color: #6366f1;"></div>Scene</div>
                         <div class="legend-item"><div class="legend-swatch" style="background: #312e2b; border-color: #a78bfa;"></div>Decision</div>
                         <div class="legend-item"><div class="legend-swatch" style="background: #7c2d12; border-color: #ef4444; border-style: dashed;"></div>Problematic</div>
-                        <div class="legend-item" style="margin-left: auto; color: #666;">Click a node for details · Drag to pan · Scroll to zoom</div>
+                        <div class="legend-item" style="margin-left: auto; color: #666;">Click a node for details · Drag nodes to reposition · Scroll to zoom</div>
                     </div>
                 </div>
             </div>
@@ -483,6 +548,72 @@
         const draftId = '{{ draft.id }}';
         window.draftId = draftId;
 
+        // ── Story Settings save (t_cd4d7480) ──
+        function saveStorySettings() {
+            const fields = [
+                'min_sentences_per_node', 'max_sentences_per_node',
+                'min_node_connections', 'max_node_connections',
+            ];
+            const payload = {};
+            fields.forEach(f => {
+                const el = document.getElementById(f);
+                payload[f] = parseInt(el.value, 10);
+                el.classList.remove('invalid');
+            });
+
+            const msgEl = document.getElementById('settings-msg');
+            const btn = document.getElementById('btn-save-settings');
+
+            // Client-side validation: min <= max for each pair
+            let clientErrors = [];
+            if (payload.min_sentences_per_node > payload.max_sentences_per_node) {
+                clientErrors.push('Min. Sätze/Node darf nicht größer als Max. sein');
+                document.getElementById('min_sentences_per_node').classList.add('invalid');
+                document.getElementById('max_sentences_per_node').classList.add('invalid');
+            }
+            if (payload.min_node_connections > payload.max_node_connections) {
+                clientErrors.push('Min. Verbindungen darf nicht größer als Max. sein');
+                document.getElementById('min_node_connections').classList.add('invalid');
+                document.getElementById('max_node_connections').classList.add('invalid');
+            }
+            if (clientErrors.length > 0) {
+                msgEl.textContent = '❌ ' + clientErrors.join('; ');
+                msgEl.className = 'settings-msg err';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Speichert…';
+            msgEl.textContent = '';
+            msgEl.className = 'settings-msg';
+
+            fetch('/admin/draft/' + draftId + '/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    msgEl.textContent = '✅ Gespeichert';
+                    msgEl.className = 'settings-msg ok';
+                } else {
+                    const errs = data.errors || ['Unknown error'];
+                    msgEl.textContent = '❌ ' + errs.join('; ');
+                    msgEl.className = 'settings-msg err';
+                }
+            })
+            .catch(err => {
+                msgEl.textContent = '❌ Netzwerkfehler: ' + err;
+                msgEl.className = 'settings-msg err';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '💾 Speichern';
+                setTimeout(() => { if (msgEl.className.includes('ok')) { msgEl.textContent = ''; } }, 3000);
+            });
+        }
+
         // ── AJAX action buttons (review, repair, validate, approve, publish) ──
         // Converts standard POST forms to AJAX with loading state + auto-refresh
         (function() {
@@ -564,9 +695,14 @@
         const svg = document.getElementById('graph-svg');
         const viewport = document.getElementById('graph-viewport');
         const zoomLevel = document.getElementById('zoom-level');
+        const zoomLayer = document.getElementById('zoom-layer');
 
         function updateTransform() {
-            svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+            if (zoomLayer) {
+                zoomLayer.setAttribute('transform', `translate(${panX},${panY}) scale(${zoom})`);
+            } else {
+                svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+            }
             zoomLevel.textContent = Math.round(zoom * 100) + '%';
         }
 
@@ -593,9 +729,339 @@
             updateTransform();
         }
 
+        // ── D3 Force Simulation: dynamic node positions + edge rendering ──
+        // Server-side layout provides initial positions; D3 force sim takes over
+        // for interactive floating behavior. Edges are redrawn every tick.
+        const layoutData = {{ layout_json | safe }};
+        const NODE_W = 180, NODE_H = 60;
+        let simulation = null;
+        let isFrozen = false;
+
+        // Prepare data copies (D3 mutates these)
+        const d3Nodes = layoutData.nodes.map(n => ({
+            ...n,
+            // Store center coordinates; x/y from server are top-left
+            x: n.x + n.width / 2,
+            y: n.y + n.height / 2,
+        }));
+        const nodeIdToIndex = {};
+        d3Nodes.forEach((n, i) => { nodeIdToIndex[n.id] = i; });
+
+        const d3Edges = layoutData.edges.map(e => ({
+            source: e.from,
+            target: e.to,
+            label: e.label,
+            dangling: e.dangling,
+        }));
+
+        // Edge endpoint trimming: finds where a line from (x1,y1) to (x2,y2)
+        // intersects the boundary of a NODE_W x NODE_H rectangle centered at (cx,cy).
+        // Returns the intersection point closest to (x1,y1) — i.e. the edge of the rect
+        // facing the other node.
+        function rectEdgeIntersection(cx, cy, x1, y1, x2, y2) {
+            const hw = NODE_W / 2;
+            const hh = NODE_H / 2;
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            if (dx === 0 && dy === 0) return [cx, cy];
+            // Parametric: P = (x1 + t*dx, y1 + t*dy). Find t where P hits rect boundary.
+            // We want the t closest to the source (smallest positive t that's outside the rect).
+            let tMin = Infinity;
+            const candidates = [];
+            // Check intersection with each of the 4 sides
+            if (dx !== 0) {
+                // Right edge: x = cx + hw
+                let t = (cx + hw - x1) / dx;
+                let py = y1 + t * dy;
+                if (t > 0 && t < 1 && py >= cy - hh && py <= cy + hh) candidates.push(t);
+                // Left edge: x = cx - hw
+                t = (cx - hw - x1) / dx;
+                py = y1 + t * dy;
+                if (t > 0 && t < 1 && py >= cy - hh && py <= cy + hh) candidates.push(t);
+            }
+            if (dy !== 0) {
+                // Bottom edge: y = cy + hh
+                let t = (cy + hh - y1) / dy;
+                let px = x1 + t * dx;
+                if (t > 0 && t < 1 && px >= cx - hw && px <= cx + hw) candidates.push(t);
+                // Top edge: y = cy - hh
+                t = (cy - hh - y1) / dy;
+                px = x1 + t * dx;
+                if (t > 0 && t < 1 && px >= cx - hw && px <= cx + hw) candidates.push(t);
+            }
+            if (candidates.length > 0) {
+                tMin = Math.min(...candidates);
+                return [x1 + tMin * dx, y1 + tMin * dy];
+            }
+            // Fallback: center of the rect
+            return [cx, cy];
+        }
+
+        function buildForceGraph() {
+            const svgEl = d3.select('#graph-svg');
+            const edgesLayer = svgEl.select('#edges-layer');
+            const nodesLayer = svgEl.select('#nodes-layer');
+
+            // ── Draw edges (paths + labels) ──
+            const edgePaths = edgesLayer.selectAll('.edge-path')
+                .data(d3Edges)
+                .enter().append('path')
+                .attr('class', d => 'edge-path' + (d.dangling ? ' dangling' : ''))
+                .attr('marker-end', d => d.dangling ? 'url(#arrowhead-dangling)' : 'url(#arrowhead)')
+                .attr('fill', 'none')
+                .attr('stroke', d => d.dangling ? '#ef4444' : '#555')
+                .attr('stroke-width', 1.5)
+                .style('pointer-events', 'none');
+
+            const edgeLabels = edgesLayer.selectAll('.edge-label')
+                .data(d3Edges)
+                .enter().append('text')
+                .attr('class', 'edge-label')
+                .style('pointer-events', 'none')
+                .text(d => d.label && d.label.length > 25 ? d.label.substring(0, 25) + '…' : (d.label || ''));
+
+            // ── Draw nodes ──
+            const nodeGroups = nodesLayer.selectAll('.node-group')
+                .data(d3Nodes)
+                .enter().append('g')
+                .attr('class', 'node-group')
+                .attr('data-node-id', d => d.id)
+                .style('cursor', 'pointer')
+                .on('click', function(event, d) {
+                    event.stopPropagation();
+                    showNodeDetail(d.id);
+                })
+                .on('mouseenter', function(event, d) {
+                    highlightNode(d.id);
+                    const tooltip = document.getElementById('graph-tooltip');
+                    if (tooltip && d.title) {
+                        tooltip.textContent = d.title + ' (Akt ' + d.act + ')';
+                        tooltip.style.display = 'block';
+                    }
+                })
+                .on('mouseleave', function() {
+                    clearHighlight();
+                    const tooltip = document.getElementById('graph-tooltip');
+                    if (tooltip) tooltip.style.display = 'none';
+                })
+                .on('mousemove', function(event) {
+                    const tooltip = document.getElementById('graph-tooltip');
+                    if (tooltip && tooltip.style.display === 'block') {
+                        const rect = viewport.getBoundingClientRect();
+                        tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
+                        tooltip.style.top = (event.clientY - rect.top - 10) + 'px';
+                    }
+                })
+                .call(d3.drag()
+                    .on('start', function(event, d) {
+                        if (!event.active && !isFrozen) simulation.alphaTarget(0.3).restart();
+                        d.fx = d.x;
+                        d.fy = d.y;
+                    })
+                    .on('drag', function(event, d) {
+                        d.fx = event.x;
+                        d.fy = event.y;
+                    })
+                    .on('end', function(event, d) {
+                        if (!event.active && !isFrozen) simulation.alphaTarget(0);
+                        // Keep node pinned where dropped
+                        d.fx = d.x;
+                        d.fy = d.y;
+                    })
+                );
+
+            // Node rectangle
+            nodeGroups.append('rect')
+                .attr('class', d => 'node-rect' +
+                    (d.is_problematic ? ' node-problematic' :
+                     d.is_start ? ' node-start' :
+                     d.is_end ? ' node-end' :
+                     ' node-' + d.type))
+                .attr('width', NODE_W)
+                .attr('height', NODE_H)
+                .attr('rx', 6)
+                .attr('ry', 6);
+
+            // Node icon
+            nodeGroups.append('text')
+                .attr('class', 'node-icon')
+                .attr('text-anchor', 'middle')
+                .attr('x', NODE_W / 2)
+                .attr('y', 15)
+                .style('pointer-events', 'none')
+                .text(d => d.is_start ? '▶️' : d.is_end ? '🏁' : d.is_problematic ? '⚠️' : '⬜');
+
+            // Node label
+            nodeGroups.append('text')
+                .attr('class', 'node-label')
+                .attr('text-anchor', 'middle')
+                .attr('x', NODE_W / 2)
+                .attr('y', 33)
+                .style('pointer-events', 'none')
+                .text(d => d.title && d.title.length > 20 ? d.title.substring(0, 20) + '…' : (d.title || d.id));
+
+            // Node sublabel
+            nodeGroups.append('text')
+                .attr('class', 'node-sublabel')
+                .attr('text-anchor', 'middle')
+                .attr('x', NODE_W / 2)
+                .attr('y', 48)
+                .style('pointer-events', 'none')
+                .text(d => 'Akt ' + d.act + ' · ' + d.choice_count + ' choices');
+
+            // ── Force simulation with adaptive parameters ──
+            // Parameters scale by node count so layouts settle within 2-3s
+            // across graph sizes (5, 20, 50+ nodes) with no node overlap.
+            const _n = d3Nodes.length;
+            const _adaptiveParams = _n <= 1 ? {
+                charge: 0, linkDist: 0, linkStr: 0, collideR: 0,
+                collideStr: 0, xStr: 0, yStr: 0, alphaDecay: 0.1, velDecay: 0.8
+            } : {
+                charge: Math.max(-1000, Math.min(-300, -250 - _n * 10)),
+                linkDist: Math.max(120, Math.min(200, 130 + _n * 1.5)),
+                linkStr: Math.max(0.15, Math.min(0.5, 0.5 - _n * 0.005)),
+                collideR: Math.max(10, Math.min(35, 35 - _n * 0.4)),
+                collideStr: 0.8,
+                xStr: Math.max(0.02, Math.min(0.06, 0.06 - _n * 0.0005)),
+                yStr: Math.max(0.02, Math.min(0.06, 0.06 - _n * 0.0005)),
+                alphaDecay: _n <= 5 ? 0.06 : _n <= 20 ? 0.045 : _n <= 50 ? 0.05 : 0.06,
+                velDecay: _n <= 5 ? 0.6 : 0.5,
+            };
+
+            simulation = d3.forceSimulation(d3Nodes);
+            if (d3Edges.length > 0) {
+                simulation.force('link', d3.forceLink(d3Edges)
+                    .id(d => d.id)
+                    .distance(_adaptiveParams.linkDist)
+                    .strength(_adaptiveParams.linkStr));
+            }
+            simulation
+                .force('charge', d3.forceManyBody().strength(_adaptiveParams.charge))
+                .force('center', _n > 1 ? d3.forceCenter(layoutData.svg_width / 2, layoutData.svg_height / 2) : null)
+                .force('collide', d3.forceCollide()
+                    .radius(d => Math.max(NODE_W, NODE_H) / 2 + _adaptiveParams.collideR)
+                    .strength(_adaptiveParams.collideStr))
+                .force('x', d3.forceX(layoutData.svg_width / 2).strength(_adaptiveParams.xStr))
+                .force('y', d3.forceY(layoutData.svg_height / 2).strength(_adaptiveParams.yStr))
+                .alphaDecay(_adaptiveParams.alphaDecay)
+                .velocityDecay(_adaptiveParams.velDecay);
+
+            // Tick throttling: skip DOM updates on some ticks for large graphs
+            // to prevent jank. Node positions still update in D3's internal state.
+            const _tickInterval = _n <= 20 ? 1 : _n <= 50 ? 2 : 3;
+            let _tickCount = 0;
+
+            simulation.on('tick', () => {
+                _tickCount++;
+                if (_tickCount % _tickInterval !== 0 && simulation.alpha() > 0.05) return;
+
+                // Update node positions (D3 moves d.x/d.y which are centers)
+                nodeGroups
+                    .attr('transform', d => `translate(${d.x - NODE_W / 2},${d.y - NODE_H / 2})`);
+
+                // Update edge paths with boundary-trimmed endpoints
+                edgePaths.attr('d', d => {
+                    const src = d.source;
+                    const tgt = d.target;
+                    // Trim start to source node's right/bottom boundary
+                    const [sx, sy] = rectEdgeIntersection(src.x, src.y, src.x, src.y, tgt.x, tgt.y);
+                    // Trim end to target node's left/top boundary
+                    const [tx, ty] = rectEdgeIntersection(tgt.x, tgt.y, tgt.x, tgt.y, src.x, src.y);
+
+                    // Bezier control points
+                    const dx = tx - sx;
+                    const cx1 = sx + dx * 0.5;
+                    const cy1 = sy;
+                    const cx2 = tx - dx * 0.5;
+                    const cy2 = ty;
+                    return `M ${sx},${sy} C ${cx1},${cy1} ${cx2},${cy2} ${tx},${ty}`;
+                });
+
+                // Update edge labels to midpoint
+                edgeLabels
+                    .attr('x', d => {
+                        const src = d.source, tgt = d.target;
+                        const [sx] = rectEdgeIntersection(src.x, src.y, src.x, src.y, tgt.x, tgt.y);
+                        const [tx] = rectEdgeIntersection(tgt.x, tgt.y, tgt.x, tgt.y, src.x, src.y);
+                        return (sx + tx) / 2;
+                    })
+                    .attr('y', d => {
+                        const src = d.source, tgt = d.target;
+                        const [, sy] = rectEdgeIntersection(src.x, src.y, src.x, src.y, tgt.x, tgt.y);
+                        const [, ty] = rectEdgeIntersection(tgt.x, tgt.y, tgt.x, tgt.y, src.x, src.y);
+                        return (sy + ty) / 2 - 5;
+                    });
+            });
+        }
+
+        // ── Highlight connected edges/nodes on hover ──
+        function highlightNode(nodeId) {
+            const connectedEdgeIds = new Set();
+            const connectedNodeIds = new Set([nodeId]);
+            d3Edges.forEach((e, i) => {
+                const sId = typeof e.source === 'object' ? e.source.id : e.source;
+                const tId = typeof e.target === 'object' ? e.target.id : e.target;
+                if (sId === nodeId || tId === nodeId) {
+                    connectedEdgeIds.add(i);
+                    connectedNodeIds.add(sId);
+                    connectedNodeIds.add(tId);
+                }
+            });
+            d3.selectAll('.edge-path').classed('highlighted', (d, i) => connectedEdgeIds.has(i));
+            d3.selectAll('.edge-path').classed('dimmed', (d, i) => !connectedEdgeIds.has(i));
+            d3.selectAll('.edge-label').classed('highlighted', (d, i) => connectedEdgeIds.has(i));
+            d3.selectAll('.edge-label').classed('dimmed', (d, i) => !connectedEdgeIds.has(i));
+            d3.selectAll('.node-group').classed('dimmed', d => !connectedNodeIds.has(d.id));
+        }
+
+        function clearHighlight() {
+            d3.selectAll('.edge-path').classed('highlighted', false).classed('dimmed', false);
+            d3.selectAll('.edge-label').classed('highlighted', false).classed('dimmed', false);
+            d3.selectAll('.node-group').classed('dimmed', false);
+        }
+
+        // ── Freeze / unfreeze simulation ──
+        function toggleFreeze() {
+            const btn = document.getElementById('btn-freeze');
+            if (!simulation) return;
+            if (isFrozen) {
+                // Unfreeze: release fixed positions, restart
+                isFrozen = false;
+                d3Nodes.forEach(n => { n.fx = null; n.fy = null; });
+                simulation.alphaTarget(0.3).restart();
+                setTimeout(() => { if (simulation) simulation.alphaTarget(0); }, 2000);
+                btn.textContent = '⏸ Freeze';
+                btn.classList.remove('frozen');
+            } else {
+                // Freeze: stop simulation
+                isFrozen = true;
+                simulation.stop();
+                btn.textContent = '▶ Unfreeze';
+                btn.classList.add('frozen');
+            }
+        }
+
+        // ── Reheat simulation on demand ──
+        function reheatSimulation() {
+            if (!simulation) return;
+            // Release any fixed positions so nodes can move freely
+            d3Nodes.forEach(n => { n.fx = null; n.fy = null; });
+            isFrozen = false;
+            const btn = document.getElementById('btn-freeze');
+            if (btn) { btn.textContent = '⏸ Freeze'; btn.classList.remove('frozen'); }
+            simulation.alpha(1).restart();
+        }
+
+        // Build the force graph after DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', buildForceGraph);
+        } else {
+            buildForceGraph();
+        }
+
         // Pan support
         viewport.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.node-rect')) return;
+            if (e.target.closest('.node-group')) return;
             isDragging = true;
             dragStartX = e.clientX;
             dragStartY = e.clientY;
@@ -634,7 +1100,7 @@
 
             // Highlight selected node
             document.querySelectorAll('.node-rect').forEach(el => el.classList.remove('selected'));
-            const nodeG = [...document.querySelectorAll('g')].find(g => g.getAttribute('onclick') === `showNodeDetail('${nodeId}')`);
+            const nodeG = document.querySelector(`[data-node-id="${nodeId}"]`);
             if (nodeG) {
                 const rect = nodeG.querySelector('.node-rect');
                 if (rect) rect.classList.add('selected');
@@ -1318,6 +1784,178 @@
     <script>
     function confirmDeleteDetail(title) {
         return confirm('Möchtest du die Story "' + title + '" wirklich löschen?\n\nDies löscht alle Versionen, Reviews, Validierungen und Generation-Jobs. Veröffentlichte Szenarien bleiben erhalten.');
+    }
+    </script>
+
+    <!-- ── Limit Adjustment Dialog (t_598dd355) ── -->
+    <div class="limit-modal-overlay" id="limit-modal-overlay">
+        <div class="limit-modal">
+            <h3>⚠️ Node-Limits anpassen</h3>
+            <div class="warning-box" id="limit-warning">
+                Diese Operation verändert bestehende Nodes. Text wird automatisch gekürzt oder erweitert, Verbindungen werden hinzugefügt oder entfernt. Eine neue Version wird erstellt.
+            </div>
+            <div id="limit-preview-content"></div>
+            <div class="mode-select" id="limit-mode-select">
+                <label class="mode-option"><input type="radio" name="limit-mode" value="auto" checked> Auto (Text + Verbindungen)</label>
+                <label class="mode-option"><input type="radio" name="limit-mode" value="sentences_only"> Nur Text</label>
+                <label class="mode-option"><input type="radio" name="limit-mode" value="connections_only"> Nur Verbindungen</label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeLimitModal()">Abbrechen</button>
+                <button type="button" class="btn" id="btn-apply-limits" onclick="applyNodeLimits()" style="background:#dc2626;color:#fff;">Anwenden</button>
+            </div>
+        </div>
+    </div>
+    <script>
+    function checkNodeLimits() {
+        const fields = [
+            'min_sentences_per_node', 'max_sentences_per_node',
+            'min_node_connections', 'max_node_connections',
+        ];
+        const payload = {};
+        fields.forEach(f => {
+            const el = document.getElementById(f);
+            payload[f] = parseInt(el.value, 10);
+        });
+
+        const msgEl = document.getElementById('settings-msg');
+        const btn = document.getElementById('btn-check-limits');
+
+        // Client-side validation
+        let clientErrors = [];
+        if (payload.min_sentences_per_node > payload.max_sentences_per_node) {
+            clientErrors.push('Min. Sätze/Node darf nicht größer als Max. sein');
+        }
+        if (payload.min_node_connections > payload.max_node_connections) {
+            clientErrors.push('Min. Verbindungen darf nicht größer als Max. sein');
+        }
+        if (clientErrors.length > 0) {
+            msgEl.textContent = '❌ ' + clientErrors.join('; ');
+            msgEl.className = 'settings-msg err';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Prüfe…';
+        msgEl.textContent = '';
+        msgEl.className = 'settings-msg';
+
+        fetch('/admin/draft/' + draftId + '/check-limits', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                showLimitModal(data.preview, payload);
+            } else {
+                msgEl.textContent = '❌ ' + (data.error || 'Fehler');
+                msgEl.className = 'settings-msg err';
+            }
+        })
+        .catch(err => {
+            msgEl.textContent = '❌ Netzwerkfehler: ' + err;
+            msgEl.className = 'settings-msg err';
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '⚡ Auf Nodes anwenden';
+        });
+    }
+
+    function showLimitModal(preview, payload) {
+        const content = document.getElementById('limit-preview-content');
+        const summary = preview.summary || {};
+        const sentenceChanges = preview.sentence_changes || [];
+        const connectionChanges = preview.connection_changes || [];
+        const violations = preview.violations || [];
+
+        if (summary.nodes_to_change === 0) {
+            content.innerHTML = '<p style="color:#86efac;">✅ Alle Nodes entsprechen bereits den neuen Limits. Keine Änderungen erforderlich.</p>';
+            document.getElementById('limit-mode-select').style.display = 'none';
+            document.getElementById('btn-apply-limits').style.display = 'none';
+        } else {
+            document.getElementById('limit-mode-select').style.display = '';
+            document.getElementById('btn-apply-limits').style.display = '';
+            let html = '<p style="margin-bottom:0.75rem;color:#ccc;">';
+            html += `<strong>${summary.nodes_to_change}</strong> von ${summary.total_nodes} Nodes benötigen Anpassungen: `;
+            html += `${summary.sentence_fixes} Text-Änderungen, ${summary.connection_fixes} Verbindungs-Änderungen.`;
+            html += '</p>';
+
+            if (sentenceChanges.length > 0) {
+                html += '<table class="change-table"><thead><tr><th>Node</th><th>Sätze alt</th><th>Sätze neu</th><th>Aktion</th></tr></thead><tbody>';
+                sentenceChanges.forEach(c => {
+                    html += `<tr><td>${c.node_id}</td><td>${c.old_count}</td><td>${c.new_count}</td>`;
+                    html += `<td class="action-${c.action}">${c.action === 'trimmed' ? '✂️ Gekürzt' : '➕ Erweitert'}</td></tr>`;
+                });
+                html += '</tbody></table>';
+            }
+
+            if (connectionChanges.length > 0) {
+                html += '<table class="change-table"><thead><tr><th>Node</th><th>Verbindungen alt</th><th>Verbindungen neu</th><th>Aktion</th></tr></thead><tbody>';
+                connectionChanges.forEach(c => {
+                    html += `<tr><td>${c.node_id}</td><td>${c.old_count}</td><td>${c.new_count}</td>`;
+                    html += `<td class="action-${c.action}">${c.action === 'trimmed' ? '✂️ Gekürzt' : '➕ Erweitert'}</td></tr>`;
+                });
+                html += '</tbody></table>';
+            }
+
+            content.innerHTML = html;
+        }
+
+        document.getElementById('limit-modal-overlay').classList.add('active');
+    }
+
+    function closeLimitModal() {
+        document.getElementById('limit-modal-overlay').classList.remove('active');
+    }
+
+    function applyNodeLimits() {
+        const fields = [
+            'min_sentences_per_node', 'max_sentences_per_node',
+            'min_node_connections', 'max_node_connections',
+        ];
+        const payload = {};
+        fields.forEach(f => {
+            payload[f] = parseInt(document.getElementById(f).value, 10);
+        });
+
+        const modeEl = document.querySelector('input[name="limit-mode"]:checked');
+        payload.mode = modeEl ? modeEl.value : 'auto';
+
+        const btn = document.getElementById('btn-apply-limits');
+        btn.disabled = true;
+        btn.textContent = 'Wird angewandt…';
+
+        fetch('/admin/draft/' + draftId + '/apply-limits', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                closeLimitModal();
+                if (typeof showToast === 'function') {
+                    showToast('Limits angewendet — neue Version v' + data.version_number, 'success');
+                }
+                setTimeout(() => { window.location.reload(); }, 800);
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Anwenden';
+                if (typeof showToast === 'function') {
+                    showToast('Fehler: ' + (data.error || 'Unbekannt'), 'error');
+                }
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = 'Anwenden';
+            if (typeof showToast === 'function') {
+                showToast('Netzwerkfehler: ' + err, 'error');
+            }
+        });
     }
     </script>
 </body>

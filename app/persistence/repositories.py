@@ -145,8 +145,11 @@ class DraftRepository:
         async with aiosqlite.connect(str(DB_PATH)) as db:
             db.row_factory = aiosqlite.Row
             await db.execute(
-                """INSERT INTO story_drafts (id, title, genre, tone, language, target_age, brief_json, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')""",
+                """INSERT INTO story_drafts
+                   (id, title, genre, tone, language, target_age, brief_json, status,
+                    min_sentences_per_node, max_sentences_per_node,
+                    min_node_connections, max_node_connections)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)""",
                 (
                     draft_id,
                     brief.get("title", "Untitled"),
@@ -155,6 +158,10 @@ class DraftRepository:
                     brief.get("language", "de"),
                     brief.get("target_age", "16+"),
                     json.dumps(brief),
+                    brief.get("min_sentences_per_node", 3),
+                    brief.get("max_sentences_per_node", 8),
+                    brief.get("min_node_connections", 2),
+                    brief.get("max_node_connections", 5),
                 ),
             )
             await db.commit()

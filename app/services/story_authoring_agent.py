@@ -23,6 +23,11 @@ from app.services.llm_service import LLMService, get_llm_service
 from app.story.prompts import (
     GRAPH_SYSTEM_PROMPT,
     OUTLINE_SYSTEM_PROMPT,
+    build_graph_system_prompt,
+)
+from app.story.limits import (
+    enforce_graph_limits,
+    find_violating_nodes,
 )
 
 logger = logging.getLogger(__name__)
@@ -261,23 +266,97 @@ class StoryAuthoringAgent:
         result.setdefault("endings", [])
         return result
 
-    async def generate_graph(self, outline: dict[str, Any]) -> dict[str, Any]:
+    async def generate_graph(
+        self,
+        outline: dict[str, Any],
+        *,
+        min_sentences: int = 3,
+        max_sentences: int = 8,
+        min_node_connections: int = 2,
+        max_node_connections: int = 5,
+        max_retries: int = 2,
+    ) -> dict[str, Any]:
         """Phase 3: produce directed story graph from outline.
 
         Returns ``{"nodes": {...}, "start_node_id": "..."}``.
+
+        The graph is generated with sentence/connection limits embedded in
+        the prompt, then post-processed: connection counts are auto-adjusted
+        to fit bounds, and if sentence violations remain, the generation is
+        retried up to *max_retries* times.
         """
         user_prompt = self._build_graph_user_prompt(outline)
-        try:
-            result = await self.llm.generate_json(
-                system_prompt=GRAPH_SYSTEM_PROMPT,
-                user_prompt=user_prompt,
+        system_prompt = build_graph_system_prompt(
+            min_sentences=min_sentences,
+            max_sentences=max_sentences,
+            min_connections=min_node_connections,
+            max_connections=max_node_connections,
+        )
+
+        result: dict[str, Any] = {}
+
+        for attempt in range(max_retries + 1):
+            try:
+                result = await self.llm.generate_json(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                )
+            except Exception as exc:
+                logger.error("Graph generation failed (attempt %d): %s", attempt + 1, exc)
+                if attempt == max_retries:
+                    raise
+                continue
+
+            # Ensure nodes dict exists
+            if "nodes" not in result:
+                result["nodes"] = {}
+
+            # Post-process: auto-fix connection counts
+            result = enforce_graph_limits(
+                result,
+                min_sentences=min_sentences,
+                max_sentences=max_sentences,
+                min_connections=min_node_connections,
+                max_connections=max_node_connections,
             )
-        except Exception as exc:
-            logger.error("Graph generation failed: %s", exc)
-            raise
-        # Ensure nodes dict exists
-        if "nodes" not in result:
-            result["nodes"] = {}
+
+            # Check for sentence violations
+            violations = find_violating_nodes(
+                result,
+                min_sentences=min_sentences,
+                max_sentences=max_sentences,
+                min_connections=min_node_connections,
+                max_connections=max_node_connections,
+            )
+            sentence_violations = [v for v in violations if v["violation"] == "sentences"]
+            connection_violations = [v for v in violations if v["violation"] == "connections"]
+
+            if connection_violations:
+                logger.warning(
+                    "Graph has %d connection violations after auto-fix: %s",
+                    len(connection_violations),
+                    [v["node_id"] for v in connection_violations],
+                )
+
+            if sentence_violations and attempt < max_retries:
+                logger.warning(
+                    "Graph has %d sentence violations (attempt %d/%d): %s — retrying",
+                    len(sentence_violations),
+                    attempt + 1,
+                    max_retries + 1,
+                    [v["node_id"] for v in sentence_violations],
+                )
+                continue
+
+            if sentence_violations:
+                logger.warning(
+                    "Graph still has %d sentence violations after %d attempts — accepting best effort",
+                    len(sentence_violations),
+                    attempt + 1,
+                )
+
+            break
+
         # Determine start node
         if result.get("start_node_id") is None:
             for nid, node in result["nodes"].items():

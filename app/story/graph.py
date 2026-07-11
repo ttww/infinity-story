@@ -6,6 +6,31 @@ from app.models import StoryNode, StoryGraph, Choice, WorldState
 from app.core.config import SCENARIOS_DIR
 
 
+def derive_node_mode(
+    choices: list,
+    is_end: bool = False,
+    next_node_id: str | None = None,
+) -> str:
+    """Derive the interaction mode of a node from its data.
+
+    Returns one of:
+    - "ending":       the story ends here (is_end, or 0 choices + no next_node_id)
+    - "auto_advance": 0 choices, next_node_id set — auto-advance after a delay
+    - "single_path":  exactly 1 choice — implicit continuation
+    - "multi_choice":  2+ choices — explicit user decision
+    """
+    if is_end:
+        return "ending"
+    n = len(choices)
+    if n == 0:
+        if next_node_id is None:
+            return "ending"
+        return "auto_advance"
+    if n == 1:
+        return "single_path"
+    return "multi_choice"
+
+
 def load_graph_from_dict(data: dict) -> StoryGraph:
     nodes = {}
     raw_nodes = data.get("nodes", {})
@@ -19,7 +44,10 @@ def load_graph_from_dict(data: dict) -> StoryGraph:
                 location=ndata.get("location", ""), characters=ndata.get("characters", []),
                 mood=ndata.get("mood", ""), known_facts=ndata.get("known_facts", []),
                 reveals=ndata.get("reveals", []), choices=choices,
+                next_node_id=ndata.get("next_node_id"),
+                auto_advance_delay_ms=ndata.get("auto_advance_delay_ms"),
                 quality_notes=ndata.get("quality_notes", []), state_updates=ndata.get("state_updates", {}),
+                is_start=ndata.get("is_start", False), is_end=ndata.get("is_end", False),
             )
     return StoryGraph(nodes=nodes, start_node_id=data.get("start_node_id"), title=data.get("title", ""), genre=data.get("genre", ""), tone=data.get("tone", ""))
 
@@ -40,7 +68,10 @@ def graph_to_dict(graph: StoryGraph) -> dict:
             "characters": node.characters, "mood": node.mood,
             "known_facts": node.known_facts, "reveals": node.reveals,
             "choices": [c.model_dump() for c in node.choices],
+            "next_node_id": node.next_node_id,
+            "auto_advance_delay_ms": node.auto_advance_delay_ms,
             "quality_notes": node.quality_notes, "state_updates": node.state_updates,
+            "is_start": node.is_start, "is_end": node.is_end,
         }
     return {"title": graph.title, "genre": graph.genre, "tone": graph.tone, "start_node_id": graph.start_node_id, "nodes": nodes}
 

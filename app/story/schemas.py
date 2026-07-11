@@ -37,6 +37,11 @@ class StoryBriefSchema(BaseModel):
     node_count: int = 25
     ending_count: int = 3
     branching_level: str = "medium"
+    # ── story config: sentence + connection bounds ─────────────────────
+    min_sentences_per_node: int = 3
+    max_sentences_per_node: int = 8
+    min_node_connections: int = 2
+    max_node_connections: int = 5
     themes: list[str] = Field(default_factory=list)
     forbidden_content: list[str] = Field(default_factory=list)
     notes: str | None = None

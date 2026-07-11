@@ -209,35 +209,48 @@
                 sessionId = data.session_id;
             }
 
-            // Update status
+            // Update status and choices
             if (data.scene) {
                 var scene = data.scene;
-                if (scene.is_ending || (scene.suggested_next_node === null && data.session_id && !scene.choices)) {
-                    setStatus('Story beendet', 'status-ended');
-                    showEndingBanner();
-                } else if (scene.choices && scene.choices.length > 0) {
-                    setStatus('Session aktiv — Wahl treffen', 'status-waiting');
-                } else if (data.session_id) {
-                    setStatus('Session aktiv', 'status-active');
-                } else {
-                    setStatus('Keine Session — sende Start', 'status-idle');
+                var mode = scene.mode || '';
+
+                // Determine mode if not provided
+                if (!mode) {
+                    if (scene.is_ending) {
+                        mode = 'ending';
+                    } else if (scene.choices && scene.choices.length === 1) {
+                        mode = 'single_path';
+                    } else if (scene.choices && scene.choices.length >= 2) {
+                        mode = 'multi_choice';
+                    } else {
+                        mode = 'auto_advance';
+                    }
                 }
 
-                // Show choices as buttons
                 clearChoices();
-                if (scene.choices && scene.choices.length > 0) {
-                    var container = document.createElement('div');
-                    container.className = 'choices-container';
-                    scene.choices.forEach(function(ch, i) {
-                        var btn = document.createElement('button');
-                        btn.className = 'choice-btn';
-                        var letter = String.fromCharCode(65 + i);
-                        btn.innerHTML = '<span class="choice-letter">' + letter + '</span><span>' + esc(ch.label || ch.id) + '</span>';
-                        btn.onclick = function() { sendChoice(ch); };
-                        container.appendChild(btn);
-                    });
-                    chatArea.appendChild(container);
-                    chatArea.scrollTop = chatArea.scrollHeight;
+
+                if (mode === 'ending') {
+                    setStatus('Story beendet', 'status-ended');
+                    showEndingBanner();
+                } else if (mode === 'auto_advance') {
+                    setStatus('Szene läuft…', 'status-active');
+                    var delay = scene.auto_advance_delay_ms || 3000;
+                    var nextId = scene.next_node_id;
+                    if (nextId) {
+                        setTimeout(function() { autoAdvance(nextId); }, delay);
+                    }
+                } else if (mode === 'single_path') {
+                    setStatus('Fortfahren…', 'status-active');
+                    var choice = scene.choices && scene.choices[0];
+                    if (choice) {
+                        showContinueButton(choice, scene.auto_advance_delay_ms);
+                    }
+                } else {
+                    // multi_choice
+                    setStatus('Session aktiv — Wahl treffen', 'status-waiting');
+                    if (scene.choices && scene.choices.length > 0) {
+                        showChoiceButtons(scene.choices);
+                    }
                 }
 
                 // Update world state
@@ -262,6 +275,70 @@
                     setStatus('Keine Session — sende Start', 'status-idle');
                 }
             }
+        }
+
+        // ── Auto-advance (zero-choice nodes) ──
+        function autoAdvance(nextNodeId) {
+            if (busy) return;
+            setBusy(true);
+            showTyping(true);
+            fetch('/api/message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: 'chat_user',
+                    message: '__auto_advance__',
+                })
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                showTyping(false);
+                renderResponse(data);
+                setBusy(false);
+            })
+            .catch(function(e) {
+                showTyping(false);
+                addError('Auto-advance Fehler: ' + e.message);
+                setBusy(false);
+            });
+        }
+
+        // ── Show a single "Continue" button (single_path nodes) ──
+        function showContinueButton(choice, autoAdvanceDelayMs) {
+            var container = document.createElement('div');
+            container.className = 'choices-container';
+            var btn = document.createElement('button');
+            btn.className = 'choice-btn';
+            btn.innerHTML = '<span class="choice-letter">→</span><span>' + esc(choice.label || choice.id || 'Weiter') + '</span>';
+            btn.onclick = function() { sendChoice(choice); };
+            container.appendChild(btn);
+            chatArea.appendChild(container);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            // Optional auto-advance for single_path
+            if (autoAdvanceDelayMs) {
+                setTimeout(function() {
+                    if (!busy) sendChoice(choice);
+                }, autoAdvanceDelayMs);
+            }
+        }
+
+        // ── Show choice buttons (multi_choice nodes) ──
+        function showChoiceButtons(choices) {
+            var container = document.createElement('div');
+            container.className = 'choices-container';
+            choices.forEach(function(ch, i) {
+                var btn = document.createElement('button');
+                btn.className = 'choice-btn';
+                var letter = String.fromCharCode(65 + i);
+                btn.innerHTML = '<span class="choice-letter">' + letter + '</span><span>' + esc(ch.label || ch.id) + '</span>';
+                btn.onclick = function() { sendChoice(ch); };
+                container.appendChild(btn);
+            });
+            chatArea.appendChild(container);
+            chatArea.scrollTop = chatArea.scrollHeight;
         }
 
         // ── Ending banner ──

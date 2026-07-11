@@ -100,7 +100,8 @@ class TestSceneSystemPrompt:
         assert "decision" in SCENE_SYSTEM_PROMPT.lower()
 
     def test_prompt_limits_choices_to_3_4(self):
-        assert "3-4" in SCENE_SYSTEM_PROMPT or "3 to 4" in SCENE_SYSTEM_PROMPT.lower()
+        # The prompt now allows 0-4 choices; verify it mentions the limit
+        assert "2-4 choices" in SCENE_SYSTEM_PROMPT or "never more than 4" in SCENE_SYSTEM_PROMPT.lower()
 
     def test_prompt_allows_free_response(self):
         prompt_lower = SCENE_SYSTEM_PROMPT.lower()

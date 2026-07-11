@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Float, String, Text, func
+from sqlalchemy import DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.enums import DraftStatus
@@ -35,6 +35,19 @@ class StoryDraft(Base):
     language: Mapped[str] = mapped_column(String(16), default="de", nullable=False)
     target_age: Mapped[str] = mapped_column(String(16), default="16+", nullable=False)
     brief_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # ── story config: sentence + connection bounds ─────────────────────
+    min_sentences_per_node: Mapped[int] = mapped_column(
+        Integer, server_default="3", default=3, nullable=False,
+    )
+    max_sentences_per_node: Mapped[int] = mapped_column(
+        Integer, server_default="8", default=8, nullable=False,
+    )
+    min_node_connections: Mapped[int] = mapped_column(
+        Integer, server_default="2", default=2, nullable=False,
+    )
+    max_node_connections: Mapped[int] = mapped_column(
+        Integer, server_default="5", default=5, nullable=False,
+    )
     status: Mapped[str] = mapped_column(
         String(32), default=DraftStatus.DRAFT.value, nullable=False, index=True,
     )
@@ -111,6 +124,10 @@ class StoryDraft(Base):
             "target_age": self.target_age,
             "status": self.status,
             "quality_score": self.quality_score,
+            "min_sentences_per_node": self.min_sentences_per_node,
+            "max_sentences_per_node": self.max_sentences_per_node,
+            "min_node_connections": self.min_node_connections,
+            "max_node_connections": self.max_node_connections,
             "version_count": len(self.versions),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "approved_at": self.approved_at.isoformat() if self.approved_at else None,

@@ -143,6 +143,9 @@ async def process_message(
         msg = _format_scene(result.scene)
         scene_dict = _scene_to_dict(result.scene)
         scene_dict["is_ending"] = result.is_ending
+        scene_dict["mode"] = result.mode
+        scene_dict["next_node_id"] = result.next_node_id
+        scene_dict["auto_advance_delay_ms"] = result.auto_advance_delay_ms
         return OutgoingMessage(
             messages=[msg],
             session_id=ss.id,
@@ -219,6 +222,9 @@ async def process_message(
 
     scene_dict = _scene_to_dict(result.scene)
     scene_dict["is_ending"] = result.is_ending
+    scene_dict["mode"] = result.mode
+    scene_dict["next_node_id"] = result.next_node_id
+    scene_dict["auto_advance_delay_ms"] = result.auto_advance_delay_ms
     return OutgoingMessage(
         messages=[msg],
         session_id=ss.id,
@@ -231,10 +237,15 @@ def _format_scene(scene: GeneratedScene) -> str:
     parts = [scene.scene_text]
 
     if scene.choices:
-        parts.append("\nWas möchtest du tun?\n")
-        for i, ch in enumerate(scene.choices, 1):
-            label = ch.get("label", ch.get("id", "?"))
-            parts.append(f"{chr(64 + i)}) {label}")
+        if len(scene.choices) == 1:
+            # Single-path: show a simple "Continue" prompt
+            label = scene.choices[0].get("label", scene.choices[0].get("id", "Weiter"))
+            parts.append(f"\n→ {label}")
+        else:
+            parts.append("\nWas möchtest du tun?\n")
+            for i, ch in enumerate(scene.choices, 1):
+                label = ch.get("label", ch.get("id", "?"))
+                parts.append(f"{chr(64 + i)}) {label}")
 
     return "\n".join(parts)
 

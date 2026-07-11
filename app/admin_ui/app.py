@@ -249,7 +249,16 @@ async def create_draft(
     event_log.emit_done("generation", "outline_generation", f"Outline generated: {outline.get('premise', '')[:80]}", draft_id=draft.id, detail={"premise": outline.get("premise", "")[:200]})
 
     event_log.emit_start("generation", "graph_generation", f"Generating story graph for '{title}'", draft_id=draft.id)
-    graph = await agent.generate_graph(outline)
+    try:
+        graph = await agent.generate_graph(
+            outline,
+            min_sentences=brief.min_sentences_per_node,
+            max_sentences=brief.max_sentences_per_node,
+            min_node_connections=brief.min_node_connections,
+            max_node_connections=brief.max_node_connections,
+        )
+    except TypeError:
+        graph = await agent.generate_graph(outline)
     node_count = len(graph.get("nodes", {}))
     event_log.emit_done("generation", "graph_generation", f"Graph generated with {node_count} nodes", draft_id=draft.id, detail={"node_count": node_count})
 
@@ -307,6 +316,10 @@ async def draft_detail(request: Request, draft_id: str, session: AsyncSession = 
             "target_age": draft.target_age,
             "status": draft.status,
             "quality_score": draft.quality_score,
+            "min_sentences_per_node": draft.min_sentences_per_node,
+            "max_sentences_per_node": draft.max_sentences_per_node,
+            "min_node_connections": draft.min_node_connections,
+            "max_node_connections": draft.max_node_connections,
             "created_at": draft.created_at,
             "updated_at": draft.updated_at,
             "approved_at": draft.approved_at,
@@ -516,6 +529,166 @@ async def run_publish(draft_id: str, session: AsyncSession = Depends(get_session
 
     event_log.emit_done("publish", "publish", f"Draft '{draft.title}' published as '{result['scenario_id']}' ({result['nodes_published']} nodes)", draft_id=draft_id, detail=result)
     return RedirectResponse(url=f"/admin/draft/{draft_id}", status_code=303)
+
+
+@admin_app.post("/draft/{draft_id}/settings", response_class=JSONResponse)
+async def update_story_settings(
+    draft_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Update story configuration parameters (sentence/connection bounds).
+
+    Accepts JSON with min_sentences_per_node, max_sentences_per_node,
+    min_node_connections, max_node_connections.  Validates that min <= max
+    for each pair and that values are within allowed bounds.
+    """
+    from sqlalchemy import update as sa_update
+    from app.models.story_draft import StoryDraft as _SD
+
+    body = await request.json()
+    errors: list[str] = []
+
+    # Parse and validate each field
+    fields = {
+        "min_sentences_per_node": (1, 50),
+        "max_sentences_per_node": (1, 100),
+        "min_node_connections": (0, 20),
+        "max_node_connections": (0, 50),
+    }
+
+    values: dict[str, int] = {}
+    for field_name, (lo, hi) in fields.items():
+        raw = body.get(field_name)
+        if raw is None:
+            errors.append(f"Missing field: {field_name}")
+            continue
+        try:
+            val = int(raw)
+        except (ValueError, TypeError):
+            errors.append(f"Invalid integer for {field_name}: {raw!r}")
+            continue
+        if val < lo or val > hi:
+            errors.append(f"{field_name} must be between {lo} and {hi}")
+            continue
+        values[field_name] = val
+
+    # Cross-field validation: min <= max for each pair
+    if not errors:
+        if values["min_sentences_per_node"] > values["max_sentences_per_node"]:
+            errors.append("min_sentences_per_node must be <= max_sentences_per_node")
+        if values["min_node_connections"] > values["max_node_connections"]:
+            errors.append("min_node_connections must be <= max_node_connections")
+
+    if errors:
+        return JSONResponse(
+            status_code=422,
+            content={"ok": False, "errors": errors},
+        )
+
+    # Persist to database
+    stmt = (
+        sa_update(_SD)
+        .where(_SD.id == draft_id)
+        .values(**values)
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+    event_log.emit_done(
+        "config", "update_settings",
+        f"Story parameters updated for draft '{draft_id}'",
+        draft_id=draft_id,
+        detail=values,
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={"ok": True, "values": values},
+    )
+
+
+@admin_app.post("/draft/{draft_id}/check-limits", response_class=JSONResponse)
+async def check_node_limits(
+    draft_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Check which nodes would need adjustment given new limit parameters.
+
+    Accepts JSON with the four limit fields and returns a preview of
+    all sentence/connection changes that would be applied.
+    """
+    from app.story.limits import preview_limit_adjustments
+
+    draft, version, draft_repo, version_repo = await _get_draft_and_version(session, draft_id)
+    if version is None:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "No version found"})
+
+    body = await request.json()
+    min_s = int(body.get("min_sentences_per_node", 3))
+    max_s = int(body.get("max_sentences_per_node", 8))
+    min_c = int(body.get("min_node_connections", 2))
+    max_c = int(body.get("max_node_connections", 4))
+
+    graph_data = version_repo.parse_graph(version)
+    preview = preview_limit_adjustments(graph_data, min_s, max_s, min_c, max_c)
+
+    return JSONResponse(content={"ok": True, "preview": preview})
+
+
+@admin_app.post("/draft/{draft_id}/apply-limits", response_class=JSONResponse)
+async def apply_node_limits(
+    draft_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Apply limit adjustments to all nodes, creating a new version.
+
+    Accepts JSON with:
+      - The four limit fields
+      - mode: "auto" (default) | "sentences_only" | "connections_only"
+
+    Returns the new version info.
+    """
+    from app.story.limits import apply_limit_adjustments, find_violating_nodes
+
+    draft, version, draft_repo, version_repo = await _get_draft_and_version(session, draft_id)
+    if version is None:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "No version found"})
+
+    body = await request.json()
+    min_s = int(body.get("min_sentences_per_node", 3))
+    max_s = int(body.get("max_sentences_per_node", 8))
+    min_c = int(body.get("min_node_connections", 2))
+    max_c = int(body.get("max_node_connections", 4))
+    mode = body.get("mode", "auto")
+
+    graph_data = version_repo.parse_graph(version)
+    new_graph = apply_limit_adjustments(graph_data, min_s, max_s, min_c, max_c, mode=mode)
+
+    # Count remaining violations
+    remaining = find_violating_nodes(new_graph, min_s, max_s, min_c, max_c)
+
+    result = await _save_graph_as_new_version(
+        session, draft_id, new_graph,
+        f"Limit-Anpassung (mode={mode}): {min_s}-{max_s} Sätze, {min_c}-{max_c} Verbindungen",
+        created_by="limit_adjustment",
+    )
+
+    event_log.emit_done(
+        "config", "apply_limits",
+        f"Node-Limits angewendet: {len(new_graph.get('nodes', {}))} Nodes angepasst",
+        draft_id=draft_id,
+        detail={"mode": mode, "remaining_violations": len(remaining)},
+    )
+
+    return JSONResponse(content={
+        "ok": True,
+        "version_id": result["version_id"],
+        "version_number": result["version_number"],
+        "remaining_violations": remaining,
+    })
 
 
 @admin_app.post("/draft/{draft_id}/delete")

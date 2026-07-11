@@ -123,6 +123,11 @@ class StoryValidationService:
             nodes, node_ids, errors,
         )
 
+        # ── 14. Auto-advance nodes need next_node_id ───────────────
+        checks["auto_advance_valid"] = self._check_auto_advance(
+            nodes, errors,
+        )
+
         # ── 2. Exactly one start node ───────────────────────────────
         start_nodes = self._find_start_nodes(nodes, graph)
         checks["exactly_one_start"] = self._check_single_start(
@@ -224,7 +229,10 @@ class StoryValidationService:
         node_ids: set[str],
         errors: list[str],
     ) -> bool:
-        """Ensure every ``next_node_id`` points to an existing node."""
+        """Ensure every ``next_node_id`` points to an existing node.
+
+        Checks both choice-level and node-level next_node_id.
+        """
         ok = True
         for nid, node in nodes.items():
             if not isinstance(node, dict):
@@ -245,6 +253,53 @@ class StoryValidationService:
                         f"references missing node '{next_id}'."
                     )
                     ok = False
+            # Node-level next_node_id (auto_advance nodes)
+            node_next = node.get("next_node_id")
+            if node_next is not None and node_next not in node_ids:
+                errors.append(
+                    f"Node '{nid}' has next_node_id '{node_next}' "
+                    f"which references a missing node."
+                )
+                ok = False
+        return ok
+
+    # ── Check 14: Auto-advance validation ──────────────────────────
+
+    @staticmethod
+    def _check_auto_advance(
+        nodes: dict[str, Any], errors: list[str],
+    ) -> bool:
+        """Validate auto_advance nodes (0 choices).
+
+        A non-optional node with 0 choices must either:
+        - Be an ending (is_end=True or type="end"), or
+        - Have next_node_id pointing to an existing node.
+
+        A node with 0 choices, no next_node_id, and is_end=False
+        is flagged as an error: the author should either mark it
+        as an ending (is_end=True) or provide a next_node_id.
+
+        Optional nodes are skipped (they may be unreachable bonus content).
+        """
+        ok = True
+        for nid, node in nodes.items():
+            if not isinstance(node, dict):
+                continue
+            # Skip optional nodes
+            if node.get("optional", False):
+                continue
+            choices = node.get("choices", []) or []
+            if len(choices) > 0:
+                continue  # Not an auto_advance node
+            is_end = node.get("is_end", False) or node.get("type") == "end"
+            next_id = node.get("next_node_id")
+            if not is_end and not next_id:
+                errors.append(
+                    f"Node '{nid}' has no choices, no next_node_id, "
+                    f"and is not marked as an ending. Either set is_end=true "
+                    f"or provide a next_node_id for auto-advancing."
+                )
+                ok = False
         return ok
 
     # ── Check 2: Start node ────────────────────────────────────────
@@ -490,6 +545,15 @@ class StoryValidationService:
                     choice.get("id", "?"),
                     su if isinstance(su, dict) else {},
                 ))
+            # Also follow node-level next_node_id (auto_advance nodes)
+            node_next = node.get("next_node_id")
+            if node_next is not None:
+                su = node.get("state_updates") or {}
+                adj[nid].append((
+                    node_next,
+                    "__auto_advance__",
+                    su if isinstance(su, dict) else {},
+                ))
 
         ok = True
         visited: set[str] = set()
@@ -570,10 +634,15 @@ class StoryValidationService:
             node = nodes.get(nid, {})
             if not isinstance(node, dict):
                 continue
+            # Follow choice-level edges
             for choice in node.get("choices", []) or []:
                 if not isinstance(choice, dict):
                     continue
                 next_id = choice.get("next_node_id")
                 if next_id and next_id not in visited:
                     queue.append(next_id)
+            # Follow node-level next_node_id (auto_advance nodes)
+            node_next = node.get("next_node_id")
+            if node_next and node_next not in visited:
+                queue.append(node_next)
         return visited

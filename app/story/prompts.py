@@ -15,12 +15,18 @@ from typing import Any
 
 # ── Runtime scene prompt (Spec §5.7) ──────────────────────────────
 
-SCENE_SYSTEM_PROMPT = """\
+def build_scene_system_prompt(
+    *,
+    min_sentences: int = 3,
+    max_sentences: int = 8,
+) -> str:
+    """Build SCENE_SYSTEM_PROMPT with configurable sentence limits."""
+    return f"""\
 You are the narrator of an interactive story.
 
 Your role:
 - Write the next scene for the user.
-- Keep it concise and immersive (2-4 paragraphs maximum).
+- Keep it concise and immersive ({min_sentences}-{max_sentences} sentences).
 - Use the current world state as your source of truth.
 - Do not contradict established facts.
 - Do not write endless monologues — keep the pace moving.
@@ -37,26 +43,41 @@ incorporate it naturally into the scene and suggest a plausible next node.
 
 Output format:
 Return a JSON object with exactly these fields:
-{
-  "scene_text": "<the narrative text, 2-4 paragraphs>",
+{{
+  "scene_text": "<the narrative text, {min_sentences}-{max_sentences} sentences>",
   "choices": [
-    {"id": "<short_id>", "label": "<player-facing label>", "next_node_id": "<node_id or null>"}
+    {{"id": "<short_id>", "label": "<player-facing label>", "next_node_id": "<node_id or null>"}}
   ],
-  "state_updates": {"<dotted.path>": <value>},
+  "state_updates": {{"<dotted.path>": <value>}},
   "suggested_next_node": "<node_id or null>"
-}
+}}
 
 Constraints on output:
-- choices: maximum 3-4 options, never more than 4.
-- Always include at least one choice.
-- The last choice should always allow a free-form action \
-(e.g. "Etwas anderes tun" with next_node_id: null).
+- scene_text must contain between {min_sentences} and {max_sentences} sentences. \
+A sentence ends with '.', '!', or '?'.
+- Include 0, 1, or 2-4 choices depending on the scene's nature:
+  - 0 choices: Use for cinematic, transitional, or narrated scenes. \
+The story will auto-advance to the next node.
+  - 1 choice: Use for single-path scenes where the story continues \
+in only one direction. The choice label should be "Weiter" or \
+a contextual continuation phrase.
+  - 2-4 choices: Use for decision points with meaningful branching.
+- Never include more than 4 choices.
+- The last choice may allow a free-form action \
+(e.g. "Etwas anderes tun" with next_node_id: null) — but only when \
+the scene has 2+ choices and a free-form option is appropriate.
+- When 0 choices are returned, set suggested_next_node to the node \
+the story should auto-advance to.
 - state_updates: only include changes that result from this scene. \
 Use dotted paths (e.g. "flags.answered_signal": true). \
 Never overwrite the entire world state — only deltas.
 - suggested_next_node: the node id the story should advance to, or null \
 if the user's free input should determine the next step.
 """
+
+
+# Default for backward compatibility
+SCENE_SYSTEM_PROMPT = build_scene_system_prompt()
 
 SCENE_USER_TEMPLATE = """\
 === STORY CONTEXT ===
@@ -95,7 +116,7 @@ Remember: return JSON with scene_text, choices, state_updates, suggested_next_no
 def _format_predefined_choices(choices: list[dict[str, Any]]) -> str:
     """Format predefined choices for the prompt."""
     if not choices:
-        return "(none — this is an open scene)"
+        return "(none — this is an auto-advance or open scene)"
     lines = []
     for i, ch in enumerate(choices, 1):
         label = ch.get("label", ch.get("id", "?"))
@@ -169,14 +190,43 @@ Return JSON with:
 - endings (list of strings)
 """
 
-GRAPH_SYSTEM_PROMPT = """\
+def build_graph_system_prompt(
+    *,
+    min_sentences: int = 3,
+    max_sentences: int = 8,
+    min_connections: int = 2,
+    max_connections: int = 5,
+) -> str:
+    """Build the GRAPH_SYSTEM_PROMPT with configurable limits."""
+    return f"""\
 You are a story authoring agent. Generate a directed story graph from an outline.
 
 Each node must contain:
 - id, title, type, act, scene_goal, location, characters, reveals, choices, quality_notes
+- is_start (true for the start node), is_end (true for ending nodes)
 
-Return JSON: { "nodes": { "node_001": { ... }, ... } }
+Choice counts are flexible but must respect the configured bounds:
+- End nodes: choices = [] (empty list), is_end = true
+- Transitional/cinematic nodes: choices = [] with next_node_id set (auto-advance)
+- Linear progression nodes: exactly 1 choice (single_path)
+- Decision nodes: {min_connections}-{max_connections} choices (multi_choice)
+- Never more than {max_connections} choices per node.
+- Non-end, non-transitional nodes must have at least {min_connections} choices.
+
+Sentence count for scene_goal text:
+- Each node's scene_goal must contain between {min_sentences} and {max_sentences} sentences.
+- A sentence ends with '.', '!', or '?'.
+
+Optional node fields:
+- next_node_id: required when choices is empty and the node is not an ending
+- auto_advance_delay_ms: optional delay (milliseconds) before auto-advancing
+
+Return JSON: {{ "nodes": {{ "node_001": {{ ... }}, ... }} }}
 """
+
+
+# Default for backward compatibility
+GRAPH_SYSTEM_PROMPT = build_graph_system_prompt()
 
 CRITIC_SYSTEM_PROMPT = """\
 You are a story critic agent. Review the story graph for dramaturgy, \

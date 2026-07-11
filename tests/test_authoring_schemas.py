@@ -29,6 +29,58 @@ class TestStoryBriefCreate:
         assert brief.ending_count == 3
         assert brief.branching_level == "medium"
 
+    # ── story config fields ────────────────────────────────────────────
+
+    def test_default_sentence_and_connection_fields(self):
+        """New config fields have sensible defaults when omitted."""
+        brief = StoryBriefCreate(title="T", genre="g", tone="t")
+        assert brief.min_sentences_per_node == 3
+        assert brief.max_sentences_per_node == 8
+        assert brief.min_node_connections == 2
+        assert brief.max_node_connections == 5
+
+    def test_custom_sentence_and_connection_fields(self):
+        """New config fields accept custom values."""
+        brief = StoryBriefCreate(
+            title="T", genre="g", tone="t",
+            min_sentences_per_node=5,
+            max_sentences_per_node=12,
+            min_node_connections=1,
+            max_node_connections=8,
+        )
+        assert brief.min_sentences_per_node == 5
+        assert brief.max_sentences_per_node == 12
+        assert brief.min_node_connections == 1
+        assert brief.max_node_connections == 8
+
+    def test_sentence_bounds_validation(self):
+        """min/max sentence fields enforce bounds."""
+        with pytest.raises(ValidationError):
+            StoryBriefCreate(title="T", genre="g", tone="t", min_sentences_per_node=0)
+        with pytest.raises(ValidationError):
+            StoryBriefCreate(title="T", genre="g", tone="t", max_sentences_per_node=0)
+        with pytest.raises(ValidationError):
+            StoryBriefCreate(title="T", genre="g", tone="t", min_sentences_per_node=100)
+
+    def test_connection_bounds_validation(self):
+        """min/max connection fields enforce bounds."""
+        with pytest.raises(ValidationError):
+            StoryBriefCreate(title="T", genre="g", tone="t", min_node_connections=-1)
+        with pytest.raises(ValidationError):
+            StoryBriefCreate(title="T", genre="g", tone="t", max_node_connections=100)
+
+    def test_config_fields_in_storage_dict(self):
+        """to_storage_dict includes the new config fields."""
+        brief = StoryBriefCreate(
+            title="T", genre="g", tone="t",
+            min_sentences_per_node=4, max_sentences_per_node=10,
+        )
+        d = brief.to_storage_dict()
+        assert d["min_sentences_per_node"] == 4
+        assert d["max_sentences_per_node"] == 10
+        assert d["min_node_connections"] == 2
+        assert d["max_node_connections"] == 5
+
     def test_empty_title_rejected(self):
         with pytest.raises(ValidationError):
             StoryBriefCreate(title="", genre="g", tone="t")

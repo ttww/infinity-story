@@ -25,6 +25,11 @@ class StoryBriefCreate(BaseModel):
     node_count: int = Field(default=25, ge=3, le=200)
     ending_count: int = Field(default=3, ge=1, le=20)
     branching_level: str = Field(default="medium", max_length=32)
+    # ── story config: sentence + connection bounds ─────────────────────
+    min_sentences_per_node: int = Field(default=3, ge=1, le=50)
+    max_sentences_per_node: int = Field(default=8, ge=1, le=100)
+    min_node_connections: int = Field(default=2, ge=0, le=20)
+    max_node_connections: int = Field(default=5, ge=0, le=50)
     themes: list[str] = Field(default_factory=list)
     forbidden_content: list[str] = Field(default_factory=list)
     notes: str | None = None
@@ -46,6 +51,10 @@ class DraftSummaryResponse(BaseModel):
     target_age: str
     status: str
     quality_score: float | None = None
+    min_sentences_per_node: int = 3
+    max_sentences_per_node: int = 8
+    min_node_connections: int = 2
+    max_node_connections: int = 5
     version_count: int = 0
     created_at: datetime | None = None
     approved_at: datetime | None = None
@@ -81,6 +90,10 @@ class DraftDetailResponse(BaseModel):
     status: str
     quality_score: float | None = None
     brief: dict[str, Any] = Field(default_factory=dict)
+    min_sentences_per_node: int = 3
+    max_sentences_per_node: int = 8
+    min_node_connections: int = 2
+    max_node_connections: int = 5
     created_at: datetime | None = None
     updated_at: datetime | None = None
     approved_at: datetime | None = None

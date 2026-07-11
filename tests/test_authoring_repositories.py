@@ -199,6 +199,67 @@ class TestStoryDraftRepository:
         assert summary["status"] == "draft"
         assert summary["version_count"] == 0
 
+    # ── story config fields (min/max sentences + connections) ──────────
+
+    @pytest.mark.asyncio
+    async def test_create_draft_has_default_config_fields(self, db_session):
+        """Draft created without explicit config values gets defaults."""
+        repo = StoryDraftRepository(db_session)
+        draft = await repo.create(
+            title="Config Defaults", genre="g", tone="t",
+        )
+        assert draft.min_sentences_per_node == 3
+        assert draft.max_sentences_per_node == 8
+        assert draft.min_node_connections == 2
+        assert draft.max_node_connections == 5
+
+    @pytest.mark.asyncio
+    async def test_create_draft_with_custom_config_fields(self, db_session):
+        """Draft created with explicit config values stores them."""
+        repo = StoryDraftRepository(db_session)
+        draft = await repo.create(
+            title="Custom Config", genre="g", tone="t",
+            min_sentences_per_node=5,
+            max_sentences_per_node=12,
+            min_node_connections=1,
+            max_node_connections=8,
+        )
+        assert draft.min_sentences_per_node == 5
+        assert draft.max_sentences_per_node == 12
+        assert draft.min_node_connections == 1
+        assert draft.max_node_connections == 8
+
+    @pytest.mark.asyncio
+    async def test_config_fields_in_summary_dict(self, db_session):
+        """to_summary_dict includes the new config fields."""
+        repo = StoryDraftRepository(db_session)
+        draft = await repo.create(
+            title="Summary Config", genre="g", tone="t",
+            min_sentences_per_node=4, max_sentences_per_node=10,
+            min_node_connections=3, max_node_connections=7,
+        )
+        summary = draft.to_summary_dict()
+        assert summary["min_sentences_per_node"] == 4
+        assert summary["max_sentences_per_node"] == 10
+        assert summary["min_node_connections"] == 3
+        assert summary["max_node_connections"] == 7
+
+    @pytest.mark.asyncio
+    async def test_config_fields_persisted_after_fetch(self, db_session):
+        """Config fields survive a round-trip through the database."""
+        repo = StoryDraftRepository(db_session)
+        draft = await repo.create(
+            title="Persist Config", genre="g", tone="t",
+            min_sentences_per_node=6, max_sentences_per_node=15,
+            min_node_connections=0, max_node_connections=3,
+        )
+        fetched = await repo.get_by_id(draft.id)
+        assert fetched is not None
+        assert fetched.min_sentences_per_node == 6
+        assert fetched.max_sentences_per_node == 15
+        assert fetched.min_node_connections == 0
+        assert fetched.max_node_connections == 3
+
 
 # ── StoryDraftVersionRepository ─────────────────────────────────────────
 

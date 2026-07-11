@@ -139,6 +139,8 @@ class LLMService(ABC):
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        min_sentences: int = 3,
+        max_sentences: int = 8,
     ) -> Any:
         """Generate a story scene from a StoryContext.
 
@@ -146,10 +148,15 @@ class LLMService(ABC):
         ``user_input`` overrides story_context.user_input if provided.
 
         Returns a GeneratedScene dataclass (from story_orchestrator).
+
+        The scene_text is validated against the *min_sentences* / *max_sentences*
+        bounds.  If the LLM output violates the bounds, the generation is
+        retried once with a corrective instruction appended to the system prompt.
         """
         # Import here to avoid circular imports at module load time
         from app.services.story_orchestrator import GeneratedScene, StoryContext
-        from app.story.prompts import SCENE_SYSTEM_PROMPT, build_scene_user_prompt
+        from app.story.prompts import build_scene_user_prompt, build_scene_system_prompt
+        from app.story.limits import count_sentences
 
         ctx: StoryContext = story_context
         effective_input = user_input if user_input is not None else ctx.user_input
@@ -171,8 +178,13 @@ class LLMService(ABC):
             history=ctx.history,
         )
 
+        system_prompt = build_scene_system_prompt(
+            min_sentences=min_sentences,
+            max_sentences=max_sentences,
+        )
+
         response = await self._complete(
-            SCENE_SYSTEM_PROMPT,
+            system_prompt,
             user_prompt,
             json_mode=True,
             max_tokens=max_tokens,
@@ -180,6 +192,30 @@ class LLMService(ABC):
         )
 
         scene = self._parse_scene_json(response.text)
+
+        # Validate sentence count and retry once if out of bounds
+        sentence_count = count_sentences(scene.scene_text)
+        if not (min_sentences <= sentence_count <= max_sentences):
+            logger.warning(
+                "Scene text has %d sentences (required %d-%d) — retrying with correction",
+                sentence_count,
+                min_sentences,
+                max_sentences,
+            )
+            correction = (
+                f"\n\nIMPORTANT: Your previous response had {sentence_count} sentences. "
+                f"You MUST write between {min_sentences} and {max_sentences} sentences. "
+                f"{'Add more detail.' if sentence_count < min_sentences else 'Be more concise.'}"
+            )
+            response = await self._complete(
+                system_prompt + correction,
+                user_prompt,
+                json_mode=True,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            scene = self._parse_scene_json(response.text)
+
         return scene
 
     async def generate_json(
