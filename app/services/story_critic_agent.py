@@ -46,6 +46,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
@@ -56,6 +58,44 @@ from app.story.prompts import CRITIC_SYSTEM_PROMPT, build_critic_user_prompt
 from app.story.schemas import CriticReviewReport
 
 logger = logging.getLogger(__name__)
+
+
+# ── Internal reference patterns ──────────────────────────────────────
+
+@dataclass
+class InternalRefFinding:
+    """A single internal reference found in story text."""
+    node_id: str
+    field_name: str
+    pattern: str
+    match_text: str
+
+
+# Compiled patterns that detect internal / programmatic references.
+# Each tuple is (label, compiled_regex).
+_INTERNAL_REF_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    # Node IDs: node_001, node_002, Node_003, etc.
+    ("node_\\d+", re.compile(r"node_\d+", re.IGNORECASE)),
+    # "(Teil 1 von 3)", "(Teil 2)", "(Teil xxx)"
+    ("(Teil \\d+)", re.compile(r"(Teil\s+\d+)", re.IGNORECASE)),
+    # "[node_002]", "<node_001>", etc.
+    ("[node_\\d+]", re.compile(r"[\[<]node_\d+[\]>]", re.IGNORECASE)),
+    # "NODE_001", "NODE_002" (all-caps variants)
+    ("NODE_\\d+", re.compile(r"NODE_\d+")),
+    # "node 1", "node 2" (space variant)
+    ("node \\d+", re.compile(r"\bnode\s+\d+", re.IGNORECASE)),
+]
+
+# Text fields in a node that contain story-facing content
+_STORY_TEXT_FIELDS: list[str] = [
+    "scene_text",
+    "scene_goal",
+    "title",
+    "mood",
+    "quality_notes",
+    "location",
+    "reveals",
+]
 
 
 class StoryCriticError(Exception):
@@ -135,7 +175,9 @@ class StoryCriticAgent:
                     system_prompt=CRITIC_SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                 )
-                return self._validate_and_normalise(result)
+                return self._merge_internal_ref_findings(
+                    self._validate_and_normalise(result), graph,
+                )
             except (LLMResponseError, ValidationError) as exc:
                 last_exc = exc
                 logger.warning(
@@ -166,6 +208,112 @@ class StoryCriticAgent:
         """
         report = CriticReviewReport.model_validate(raw)
         return report.model_dump()
+
+    # ── Internal reference scanning ─────────────────────────────────
+
+    @staticmethod
+    def scan_internal_references(
+        graph: dict[str, Any],
+    ) -> list[InternalRefFinding]:
+        """Scan all story-facing text fields in *graph* for internal /
+        programmatic references.
+
+        Returns a list of :class:`InternalRefFinding` objects, one per
+        match.  An empty list means no internal references were found.
+        """
+        findings: list[InternalRefFinding] = []
+        nodes = graph.get("nodes", {})
+        if not isinstance(nodes, dict):
+            return findings
+
+        for node_id, node in nodes.items():
+            if not isinstance(node, dict):
+                continue
+
+            # ── Scalar text fields ────────────────────────────────
+            for field_name in _STORY_TEXT_FIELDS:
+                value = node.get(field_name)
+                if not isinstance(value, str):
+                    continue
+                for label, pattern in _INTERNAL_REF_PATTERNS:
+                    for m in pattern.finditer(value):
+                        findings.append(InternalRefFinding(
+                            node_id=node_id,
+                            field_name=field_name,
+                            pattern=label,
+                            match_text=m.group(0),
+                        ))
+
+            # ── quality_notes (list of strings) ───────────────────
+            qn = node.get("quality_notes")
+            if isinstance(qn, list):
+                for item in qn:
+                    if not isinstance(item, str):
+                        continue
+                    for label, pattern in _INTERNAL_REF_PATTERNS:
+                        for m in pattern.finditer(item):
+                            findings.append(InternalRefFinding(
+                                node_id=node_id,
+                                field_name="quality_notes",
+                                pattern=label,
+                                match_text=m.group(0),
+                            ))
+
+            # ── choices[].label (player-facing choice text) ───────
+            choices = node.get("choices")
+            if isinstance(choices, list):
+                for choice in choices:
+                    if not isinstance(choice, dict):
+                        continue
+                    label_val = choice.get("label", "")
+                    if not isinstance(label_val, str):
+                        continue
+                    for plabel, pattern in _INTERNAL_REF_PATTERNS:
+                        for m in pattern.finditer(label_val):
+                            findings.append(InternalRefFinding(
+                                node_id=node_id,
+                                field_name="choices.label",
+                                pattern=plabel,
+                                match_text=m.group(0),
+                            ))
+
+        return findings
+
+    @staticmethod
+    def _merge_internal_ref_findings(
+        review: dict[str, Any],
+        graph: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Append internal-reference findings to *review* issues.
+
+        Each finding is added as a ``high`` severity issue of the form::
+
+            INTERNAL_REFERENCE_FOUND: <field> contains "<match>"
+
+        The score is left unchanged (the LLM's assessment stands); the
+        deterministic findings supplement the LLM critique.
+        """
+        findings = StoryCriticAgent.scan_internal_references(graph)
+        if not findings:
+            return review
+
+        issues = review.get("issues", [])
+        for f in findings:
+            issues.append({
+                "severity": "high",
+                "node_id": f.node_id,
+                "problem": (
+                    f'INTERNAL_REFERENCE_FOUND: {f.field_name} '
+                    f'contains programmatic reference "{f.match_text}"'
+                ),
+                "suggestion": (
+                    f'Remove the internal reference "{f.match_text}" '
+                    f'from {f.field_name} in {f.node_id}. Replace with '
+                    f'natural story text.'
+                ),
+            })
+        review["issues"] = issues
+        return review
 
     # ── Convenience helpers ───────────────────────────────────────
 

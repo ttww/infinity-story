@@ -328,6 +328,7 @@
                     <li class="issue-{{ issue.severity }}" id="finding-{{ loop.index }}">
                         <button type="button" class="btn btn-fixthis"
                             data-finding-id="{{ loop.index }}"
+                            data-report-id="{{ review.id }}"
                             data-severity="{{ issue.severity }}"
                             data-node-id="{{ issue.node_id|default('') }}"
                             data-problem="{{ issue.problem|e }}"
@@ -633,6 +634,7 @@
                 if (!btn || btn.disabled) return;
 
                 const findingId = btn.dataset.findingId;
+                const reportId = btn.dataset.reportId || null;
                 const finding = {
                     id: findingId,
                     severity: btn.dataset.severity,
@@ -658,7 +660,7 @@
                 fetch('/admin/draft/' + draftId + '/fix-issue', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({finding_id: parseInt(findingId, 10), finding: finding}),
+                    body: JSON.stringify({finding_id: parseInt(findingId, 10), report_id: reportId, finding: finding}),
                 })
                 .then(function(r) {
                     if (!r.ok) {

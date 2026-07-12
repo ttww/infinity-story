@@ -207,3 +207,91 @@ async def test_draft_detail_wires_fixthis_to_backend(admin_client):
     assert resp.status_code == 200
     assert "/fix-issue" in resp.text
     assert "fetch('/admin/draft/' + draftId + '/fix-issue'" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_fix_issue_with_report_id_uses_correct_report(monkeypatch, admin_client):
+    """When a newer review report appears between render and click, the
+    report_id sent with the request must target the original report, not
+    reviews[-1]."""
+    from app.persistence.authoring_repositories import (
+        StoryDraftRepository,
+        StoryDraftVersionRepository,
+        StoryReviewReportRepository,
+    )
+    from app.persistence.database import get_session_factory
+
+    graph = {
+        "start_node_id": "node_001",
+        "nodes": {"node_001": {"type": "start", "title": "X", "choices": []}},
+    }
+    outline = {"premise": "P"}
+    async with get_session_factory()() as session:
+        draft_repo = StoryDraftRepository(session)
+        version_repo = StoryDraftVersionRepository(session)
+        review_repo = StoryReviewReportRepository(session)
+        draft = await draft_repo.create(title="Stale Test", genre="sci-fi", tone="tense")
+        version = await version_repo.create(
+            draft_id=draft.id, graph=graph, outline=outline, created_by="test"
+        )
+        # Original report with 2 issues — the one that "rendered" the button
+        original_report = await review_repo.create(
+            draft_id=draft.id,
+            version_id=version.id,
+            score=5.0,
+            issues=[
+                {"severity": "high", "node_id": "node_001", "problem": "A", "suggestion": "B"},
+                {"severity": "low", "node_id": None, "problem": "C", "suggestion": "D"},
+            ],
+            summary="Old",
+        )
+        # A newer report with 0 issues — this would be reviews[-1]
+        await review_repo.create(
+            draft_id=draft.id,
+            version_id=version.id,
+            score=9.0,
+            issues=[],
+            summary="New empty",
+        )
+        draft_id = draft.id
+        original_report_id = original_report.id
+
+    class FakeRepairAgent:
+        async def repair(self, graph, review_report):
+            return {"graph": graph, "summary": "ok"}
+
+    class FakeCriticAgent:
+        async def review(self, outline, graph):
+            return {"score": 8.0, "issues": [], "summary": "good"}
+
+    monkeypatch.setattr("app.admin_ui.app.StoryRepairAgent", FakeRepairAgent)
+    monkeypatch.setattr("app.admin_ui.app.StoryCriticAgent", FakeCriticAgent)
+
+    # Without report_id: finding_id=1 would hit the newer empty report -> 404
+    resp_stale = await admin_client.post(
+        f"/draft/{draft_id}/fix-issue", json={"finding_id": 1}
+    )
+    assert resp_stale.status_code == 404
+    assert "Finding 1 not found" in resp_stale.json()["detail"]
+
+    # With report_id: targets the original report with 2 issues -> 200
+    resp_ok = await admin_client.post(
+        f"/draft/{draft_id}/fix-issue",
+        json={"finding_id": 1, "report_id": original_report_id},
+    )
+    assert resp_ok.status_code == 200
+    payload = resp_ok.json()
+    assert payload["ok"] is True
+    assert payload["finding_id"] == 1
+    assert payload["fix_status"] == "fixed"
+
+
+@pytest.mark.asyncio
+async def test_draft_detail_renders_report_id_in_button(admin_client):
+    """The FixThis button must include data-report-id so the frontend can
+    send it with the fix request."""
+    draft_id, report_id = await _create_draft_with_review()
+
+    resp = await admin_client.get(f"/draft/{draft_id}")
+    assert resp.status_code == 200
+    assert f'data-report-id="{report_id}"' in resp.text

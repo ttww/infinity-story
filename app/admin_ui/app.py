@@ -104,6 +104,7 @@ async def _get_review_data(session: AsyncSession, draft_id: str) -> dict | None:
         return None
     latest = reviews[-1]
     return {
+        "id": latest.id,
         "score": latest.score,
         "issues": review_repo.parse_issues(latest),
         "summary": latest.summary or "",
@@ -470,18 +471,28 @@ async def fix_issue(draft_id: str, request: Request, session: AsyncSession = Dep
         payload = {}
 
     finding_id = payload.get("finding_id") or payload.get("id") or payload.get("issue_id")
+    report_id = payload.get("report_id")
     try:
         issue_index = int(finding_id) - 1
     except (TypeError, ValueError):
         raise HTTPException(status_code=422, detail="finding_id must be a one-based integer")
 
     review_repo = StoryReviewReportRepository(session)
-    reviews = await review_repo.list_by_draft(draft_id)
-    if not reviews:
-        event_log.emit_error("repair", "fix_issue", f"No review found for draft {draft_id}", draft_id=draft_id)
-        raise HTTPException(status_code=400, detail="Run review first")
 
-    source_report = reviews[-1]
+    # Prefer the explicit report_id from the request (robust against stale
+    # latest-report lookups); fall back to reviews[-1] for backward compat.
+    source_report = None
+    if report_id:
+        source_report = await review_repo.get_by_id(report_id)
+        if source_report is not None and source_report.draft_id != draft_id:
+            source_report = None  # report belongs to a different draft
+    if source_report is None:
+        reviews = await review_repo.list_by_draft(draft_id)
+        if not reviews:
+            event_log.emit_error("repair", "fix_issue", f"No review found for draft {draft_id}", draft_id=draft_id)
+            raise HTTPException(status_code=400, detail="Run review first")
+        source_report = reviews[-1]
+
     source_issues = review_repo.parse_issues(source_report)
     if issue_index < 0 or issue_index >= len(source_issues):
         raise HTTPException(status_code=404, detail=f"Finding {finding_id} not found")

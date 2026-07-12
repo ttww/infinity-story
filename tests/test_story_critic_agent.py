@@ -588,3 +588,162 @@ async def test_review_with_helios_graph_and_outline():
     assert 0.0 <= result["score"] <= 10.0
     assert isinstance(result["issues"], list)
     assert isinstance(result["repair_suggestions"], list)
+
+
+# ── Internal reference scanning tests ──────────────────────────────
+
+
+from app.services.story_critic_agent import InternalRefFinding  # noqa: E402
+
+
+def _make_graph_with_ref(
+    node_id: str = "node_002",
+    field_name: str = "scene_text",
+    value: str = "Sie erreicht node_001 und zittert.",
+) -> dict[str, Any]:
+    """Build a minimal graph with a single node containing *value*."""
+    return {
+        "start_node_id": node_id,
+        "nodes": {
+            node_id: {
+                "id": node_id,
+                "title": "Test",
+                "scene_text": value if field_name == "scene_text" else "Clean text.",
+                "scene_goal": value if field_name == "scene_goal" else "Clean goal.",
+                "mood": value if field_name == "mood" else "tense",
+                "quality_notes": [value] if field_name == "quality_notes" else [],
+                "choices": (
+                    [{"id": "c1", "label": value, "next_node_id": None}]
+                    if field_name == "choices.label"
+                    else []
+                ),
+            },
+        },
+    }
+
+
+def test_scan_finds_node_id_reference():
+    """scan_internal_references should find 'node_001' in scene_text."""
+    graph = _make_graph_with_ref(value="Sie erreicht node_001 und zittert.")
+    findings = StoryCriticAgent.scan_internal_references(graph)
+    assert len(findings) >= 1
+    assert any(f.match_text == "node_001" for f in findings)
+    assert all(f.node_id == "node_002" for f in findings)
+
+
+def test_scan_finds_teil_reference():
+    """scan_internal_references should find '(Teil 2)' in scene_text."""
+    graph = _make_graph_with_ref(value="Das ist (Teil 2) der Geschichte.")
+    findings = StoryCriticAgent.scan_internal_references(graph)
+    assert len(findings) >= 1
+    assert any("Teil 2" in f.match_text for f in findings)
+
+
+def test_scan_finds_reference_in_choices_label():
+    """scan_internal_references should find refs in choice labels."""
+    graph = _make_graph_with_ref(
+        field_name="choices.label",
+        value="Gehe zu node_003",
+    )
+    findings = StoryCriticAgent.scan_internal_references(graph)
+    assert len(findings) >= 1
+    assert any(f.field_name == "choices.label" for f in findings)
+    assert any("node_003" in f.match_text for f in findings)
+
+
+def test_scan_finds_reference_in_quality_notes():
+    """scan_internal_references should find refs in quality_notes list."""
+    graph = _make_graph_with_ref(
+        field_name="quality_notes",
+        value="Siehe node_004 für Details",
+    )
+    findings = StoryCriticAgent.scan_internal_references(graph)
+    assert len(findings) >= 1
+    assert all(f.field_name == "quality_notes" for f in findings)
+
+
+def test_scan_no_references_returns_empty():
+    """A clean graph should produce no findings."""
+    graph = {
+        "start_node_id": "n1",
+        "nodes": {
+            "n1": {
+                "id": "n1",
+                "title": "Anfang",
+                "scene_text": "Die Sonne sinkt hinter die Berge.",
+                "scene_goal": "Atmosphäre etablieren.",
+                "mood": "ruhig",
+                "quality_notes": ["Gute Stimmung"],
+                "choices": [
+                    {"id": "c1", "label": "Weitergehen", "next_node_id": "n2"},
+                ],
+            },
+        },
+    }
+    findings = StoryCriticAgent.scan_internal_references(graph)
+    assert findings == []
+
+
+def test_scan_multiple_references_in_same_field():
+    """Multiple refs in one field should produce multiple findings."""
+    graph = _make_graph_with_ref(
+        value="Sie geht zu node_001 und findet node_002.",
+    )
+    findings = StoryCriticAgent.scan_internal_references(graph)
+    matches = [f.match_text for f in findings]
+    assert "node_001" in matches
+    assert "node_002" in matches
+
+
+def test_scan_handles_empty_graph():
+    """Empty graph should produce no findings."""
+    findings = StoryCriticAgent.scan_internal_references({})
+    assert findings == []
+
+
+def test_scan_handles_no_nodes_key():
+    """Graph without 'nodes' key should not crash."""
+    findings = StoryCriticAgent.scan_internal_references({"start_node_id": "x"})
+    assert findings == []
+
+
+@pytest.mark.asyncio
+async def test_review_merges_internal_ref_findings():
+    """review() should append internal-ref findings to LLM issues."""
+    graph = _make_graph_with_ref(value="Sie liest node_001 Dokumente.")
+    llm = _ScriptedLLMService(responses=[GOOD_REVIEW])
+    agent = StoryCriticAgent(llm=llm)
+    result = await agent.review(SAMPLE_OUTLINE, graph)
+
+    # Original LLM issue + at least one internal-ref finding
+    assert len(result["issues"]) > 1
+    ref_issues = [
+        i for i in result["issues"]
+        if "INTERNAL_REFERENCE_FOUND" in i.get("problem", "")
+    ]
+    assert len(ref_issues) >= 1
+    assert ref_issues[0]["severity"] == "high"
+    assert "node_001" in ref_issues[0]["problem"]
+
+
+@pytest.mark.asyncio
+async def test_review_without_internal_refs_unchanged():
+    """review() with a clean graph should not add extra issues."""
+    clean_graph = {
+        "start_node_id": "n1",
+        "nodes": {
+            "n1": {
+                "id": "n1", "title": "Start", "type": "start",
+                "scene_text": "Alles ist friedlich.",
+                "scene_goal": "Beginn.",
+                "choices": [{"id": "c1", "label": "Weiter", "next_node_id": "n2"}],
+                "quality_notes": ["ruhig"], "is_start": True, "is_end": False,
+            },
+        },
+    }
+    llm = _ScriptedLLMService(responses=[GOOD_REVIEW])
+    agent = StoryCriticAgent(llm=llm)
+    result = await agent.review(SAMPLE_OUTLINE, clean_graph)
+
+    # Should have exactly the LLM's original issue, no extra ones
+    assert len(result["issues"]) == 1

@@ -40,6 +40,10 @@ or reveals indicate it is time to do so.
 - You MUST stay in character as the narrator — never break the fourth wall.
 - If the user's input is a free-form action (not one of the listed choices), \
 incorporate it naturally into the scene and suggest a plausible next node.
+- NEVER include internal/programmatic references in the story text — no node \
+IDs (e.g. "node_002"), no internal identifiers, no technical markers like \
+"(Teil 1 von 3)" or "(Teil xxx)". All such references are internal metadata \
+and must not appear in the narrative prose visible to the player.
 
 Output format:
 Return a JSON object with exactly these fields:
@@ -217,6 +221,12 @@ Sentence count for scene_goal text:
 - Each node's scene_goal must contain between {min_sentences} and {max_sentences} sentences.
 - A sentence ends with '.', '!', or '?'.
 
+Content rules:
+- NEVER include internal/programmatic references in scene_goal text or titles —
+  no node IDs (e.g. "node_002"), no internal identifiers, no technical markers
+  like "(Teil 1 von 3)" or "(Teil xxx)". All such references are internal metadata \
+  and must not appear in the story content.
+
 Optional node fields:
 - next_node_id: required when choices is empty and the node is not an ending
 - auto_advance_delay_ms: optional delay (milliseconds) before auto-advancing
@@ -308,6 +318,9 @@ Rules:
 - Only change problematic parts
 - Document your changes
 - Return ONLY the changes as patches — do NOT return the full graph
+- NEVER include internal/programmatic references in scene_goal text or titles —
+  no node IDs (e.g. "node_002"), no internal identifiers, no technical markers
+  like "(Teil 1 von 3)". Such references are internal metadata only.
 
 Output format — return JSON:
 {
@@ -383,6 +396,10 @@ Rules:
 - Do not create dangling references (choices pointing to non-existent nodes)
 - Keep the language consistent with the story's language field
 - Return ONLY the changes as patches — do NOT return the full graph
+- NEVER include internal/programmatic references in scene_goal text, titles, \
+or any story content — no node IDs (e.g. "node_002"), no internal identifiers, \
+no technical markers like "(Teil 1 von 3)" or "(Teil xxx)". All such references \
+are internal metadata and must not appear in the narrative prose.
 
 Output format — return JSON with node patches (field-level merges onto \
 existing nodes), new_nodes (complete node definitions for added nodes), \
