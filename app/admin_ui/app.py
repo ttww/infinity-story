@@ -292,7 +292,8 @@ async def draft_detail(request: Request, draft_id: str, session: AsyncSession = 
     eligibility = await _get_eligibility(session, draft_id)
 
     # Compute SVG layout for graph visualization
-    layout = compute_layout(graph_data)
+    review_issues = review_data.get("issues", []) if review_data else []
+    layout = compute_layout(graph_data, review_issues)
 
     # Prepare review issues and validation data for node enrichment
     review_issues = review_data.get("issues", []) if review_data else []
@@ -484,7 +485,10 @@ async def _run_review_background(
             if score < 7.0:
                 await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
             else:
-                await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+                try:
+                    await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+                except ValueError:
+                    pass  # bereits validated — kein Fehler
 
             await session.commit()
 
@@ -602,7 +606,10 @@ async def _run_repair_background(
             if score < 7.0:
                 await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
             else:
-                await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+                try:
+                    await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+                except ValueError:
+                    pass  # bereits validated — kein Fehler
 
             await session.commit()
 

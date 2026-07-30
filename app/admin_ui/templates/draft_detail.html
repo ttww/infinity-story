@@ -67,6 +67,7 @@
         .graph-svg .node-icon { font-size: 14px; pointer-events: none; text-anchor: middle; }
         .graph-svg .edge-path { fill: none; stroke: #555; stroke-width: 1.5; pointer-events: none; }
         .graph-svg .edge-path.dangling { stroke: #ef4444; stroke-dasharray: 4,2; }
+        .graph-svg .edge-path.problematic { stroke: #ef4444; stroke-width: 2.5; }
         .graph-svg .edge-label { fill: #888; font-size: 8px; pointer-events: none; }
         .graph-legend { display: flex; gap: 1rem; padding: 0.5rem 1rem; background: #0a0a14; border-top: 1px solid #222; font-size: 0.75rem; color: #888; }
         .legend-item { display: flex; align-items: center; gap: 0.3rem; }
@@ -989,13 +990,13 @@
             const edgePaths = edgesLayer.selectAll('.edge-path')
                 .data(d3Edges)
                 .enter().append('path')
-                .attr('class', d => 'edge-path' + (d.dangling ? ' dangling' : ''))
+                .attr('class', d => 'edge-path' + (d.dangling ? ' dangling' : '') + (d.problematic ? ' problematic' : ''))
                 .attr('marker-end', d => d.dangling ? 'url(#arrowhead-dangling)' : 'url(#arrowhead)')
+                .attr('d', d => 'M' + d.x1 + ',' + d.y1 + ' C' + d.cx1 + ',' + d.cy1 + ' ' + d.cx2 + ',' + d.cy2 + ' ' + d.x2 + ',' + d.y2)
                 .attr('fill', 'none')
-                .attr('stroke', d => d.dangling ? '#ef4444' : '#555')
-                .attr('stroke-width', 1.5)
+                .attr('stroke', d => d.dangling ? '#ef4444' : (d.problematic ? '#ef4444' : '#555'))
+                .attr('stroke-width', d => d.problematic ? 2.5 : 1.5)
                 .style('pointer-events', 'none');
-
             const edgeLabels = edgesLayer.selectAll('.edge-label')
                 .data(d3Edges)
                 .enter().append('text')

@@ -27,8 +27,21 @@ MIN_SVG_WIDTH = 800
 MIN_SVG_HEIGHT = 400
 
 
-def compute_layout(graph_data: dict[str, Any]) -> dict[str, Any]:
+def compute_layout(
+    graph_data: dict[str, Any],
+    review_issues: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Compute SVG layout positions for all nodes in the graph.
+
+    Parameters
+    ----------
+    graph_data
+        Raw story graph dict.
+    review_issues
+        Optional list of review issue dicts (each has ``node_id``).
+        Nodes referenced in review issues are flagged as ``problematic``,
+        and edges from/to such nodes get ``problematic=True`` so they
+        can be rendered in a different colour.
 
     Returns a dict with:
         - nodes: list of {id, title, type, x, y, width, height, act, ...}
@@ -120,9 +133,8 @@ def compute_layout(graph_data: dict[str, Any]) -> dict[str, Any]:
         if node.get("type") in ("end", "ending") or node.get("is_end"):
             end_node_ids.append(nid)
 
-    # Problematic nodes: those with empty scene_goal, empty quality_notes,
-    # dangling references, or referenced in review issues
-    problematic_node_ids = _identify_problematic_nodes(nodes_data)
+    # Problematic nodes: technical issues + review issues
+    problematic_node_ids = _identify_problematic_nodes(nodes_data, review_issues)
 
     # ── 4. Build node list for SVG ──
     svg_nodes = []
@@ -191,6 +203,7 @@ def compute_layout(graph_data: dict[str, Any]) -> dict[str, Any]:
                 "cx1": cx1, "cy1": cy1,
                 "cx2": cx2, "cy2": cy2,
                 "dangling": next_id not in nodes_data,
+                "problematic": nid in problematic_node_ids or next_id in problematic_node_ids,
             })
 
     svg_width = max(max_x + 40, MIN_SVG_WIDTH)
@@ -207,14 +220,18 @@ def compute_layout(graph_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _identify_problematic_nodes(nodes_data: dict[str, Any]) -> set[str]:
-    """Identify nodes with technical issues (Spec §8.1.3: problematische Knoten).
+def _identify_problematic_nodes(
+    nodes_data: dict[str, Any],
+    review_issues: list[dict[str, Any]] | None = None,
+) -> set[str]:
+    """Identify nodes with technical or review issues.
 
     A node is problematic if it has:
     - Empty scene_goal
     - Empty quality_notes
     - Dangling choice references (next_node_id points to non-existent node)
     - Dangling node-level next_node_id (auto_advance pointing to missing node)
+    - A review issue referencing its node_id
     """
     problematic = set()
     node_ids = set(nodes_data.keys())
@@ -253,6 +270,15 @@ def _identify_problematic_nodes(nodes_data: dict[str, Any]) -> set[str]:
             if not label or not str(label).strip():
                 problematic.add(nid)
                 break
+
+    # Flag nodes referenced in review issues
+    if review_issues:
+        for issue in review_issues:
+            if not isinstance(issue, dict):
+                continue
+            issue_node_id = issue.get("node_id")
+            if issue_node_id and issue_node_id in node_ids:
+                problematic.add(issue_node_id)
 
     return problematic
 
