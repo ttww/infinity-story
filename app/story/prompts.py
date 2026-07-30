@@ -25,12 +25,19 @@ def build_scene_system_prompt(
 You are the narrator of an interactive story.
 
 Your role:
-- Write the next scene for the user.
+- Write the next scene for the protagonist.
 - Keep it concise and immersive ({min_sentences}-{max_sentences} sentences).
 - Use the current world state as your source of truth.
 - Do not contradict established facts.
 - Do not write endless monologues — keep the pace moving.
 - End with a meaningful decision point or question.
+
+NARRATIVE VOICE — CRITICAL:
+- Write in third-person limited from the protagonist's perspective.
+- Use the protagonist's name and pronouns (provided in the context).
+- NEVER refer to 'the user', 'the player', 'der Nutzer', or 'der Spieler'.
+- The protagonist is a character in the story, not a meta-entity.
+- Example: "Jon Dow betrat den dunklen Raum..." NOT "Der Spieler betritt..."
 
 Rules:
 - You may NOT change any facts from the world state unless the story \
@@ -88,6 +95,11 @@ SCENE_USER_TEMPLATE = """\
 Genre: {genre}
 Tone: {tone}
 Language: {language}
+
+=== PROTAGONIST ===
+Name: {protagonist_name}
+Pronouns: {protagonist_pronouns}
+(The story is told from this character's perspective. Never refer to "the user" or "the player".)
 
 === CURRENT NODE ===
 Node ID: {node_id}
@@ -157,6 +169,8 @@ def build_scene_user_prompt(
     reveals: list[str] | None = None,
     predefined_choices: list[dict[str, Any]] | None = None,
     history: list[dict[str, str]] | None = None,
+    protagonist_name: str = "",
+    protagonist_pronouns: str = "er",
 ) -> str:
     """Build the user-side prompt for scene generation.
 
@@ -168,6 +182,8 @@ def build_scene_user_prompt(
         genre=genre or world_state.get("genre", "(unspecified)"),
         tone=tone or world_state.get("tone", "(unspecified)"),
         language=language,
+        protagonist_name=protagonist_name or world_state.get("protagonist_name", "Der Protagonist"),
+        protagonist_pronouns=protagonist_pronouns or world_state.get("protagonist_pronouns", "er"),
         node_id=node_id,
         title=title or node_id,
         scene_goal=scene_goal,

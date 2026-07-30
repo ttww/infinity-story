@@ -46,6 +46,9 @@ class StoryContext:
     history: list[dict[str, str]] = field(default_factory=list)
     scenario_id: str | None = None
     available_choices: list[dict[str, Any]] = field(default_factory=list)
+    # ── protagonist / narrative voice ───────────────────────────────
+    protagonist_name: str = ""
+    protagonist_pronouns: str = "er"
 
 
 @dataclass

@@ -176,6 +176,8 @@ class LLMService(ABC):
             reveals=node.get("reveals", []),
             predefined_choices=node.get("choices", []) or ctx.available_choices,
             history=ctx.history,
+            protagonist_name=ctx.protagonist_name or ctx.world_state.get("protagonist_name", ""),
+            protagonist_pronouns=ctx.protagonist_pronouns or ctx.world_state.get("protagonist_pronouns", "er"),
         )
 
         system_prompt = build_scene_system_prompt(
@@ -565,7 +567,7 @@ _MOCK_GRAPH: dict[str, Any] = {
             "title": "Ankunft auf Helios",
             "type": "start",
             "act": 1,
-            "scene_goal": "Spieler trifft auf der Station ein.",
+            "scene_goal": "Protagonist trifft auf der Station ein.",
             "mood": "unheimlich",
             "location": "Docking Bay",
             "characters": ["Dr. Lena Voss"],
@@ -605,7 +607,7 @@ _MOCK_GRAPH: dict[str, Any] = {
             "title": "Verlassener Korridor",
             "type": "scene",
             "act": 1,
-            "scene_goal": "Spieler findet Spuren eines Kampfes.",
+            "scene_goal": "Protagonist findet Spuren eines Kampfes.",
             "mood": "bedrohlich",
             "location": "Korridor C-7",
             "characters": [],
@@ -645,7 +647,7 @@ _MOCK_GRAPH: dict[str, Any] = {
             "title": "Maras Tagebuch",
             "type": "scene",
             "act": 2,
-            "scene_goal": "Spieler entdeckt die Infektion.",
+            "scene_goal": "Protagonist entdeckt die Infektion.",
             "mood": "schockierend",
             "location": "Medbay",
             "characters": ["Mara Singh"],
@@ -738,7 +740,7 @@ _MOCK_REVIEW: dict[str, Any] = {
             "severity": "medium",
             "node_id": "node_003",
             "problem": "Szene könnte mehr Spannung aufbauen.",
-            "suggestion": "Füge ein Geräusch hinzu, das den Spieler alarmiert.",
+            "suggestion": "Füge ein Geräusch hinzu, das den Protagonist alarmiert.",
         },
         {
             "severity": "info",
@@ -760,7 +762,7 @@ _MOCK_REVIEW: dict[str, Any] = {
 _MOCK_ENHANCEMENT_RESULT: dict[str, Any] = {
     "node_patches": {
         "node_001": {
-            "scene_goal": "Spieler trifft auf der Station ein. Das kalte, flackernde Licht der Docking Bay empfängt ihn mit einem Summen, das nach Verlassenheit klingt.",
+            "scene_goal": "Protagonist trifft auf der Station ein. Das kalte, flackernde Licht der Docking Bay empfängt ihn mit einem Summen, das nach Verlassenheit klingt.",
             "quality_notes": ["Startknoten mit starker Atmosphäre", "Enhanced: detaillierte Sinnesbeschreibungen"],
         },
         "node_002": {
@@ -772,7 +774,7 @@ _MOCK_ENHANCEMENT_RESULT: dict[str, Any] = {
             "quality_notes": ["Enhanced: komplexere Choice-Beschreibungen"],
         },
         "node_003": {
-            "scene_goal": "Spieler findet Spuren eines Kampfes und hört ein seltsames Geräusch.",
+            "scene_goal": "Protagonist findet Spuren eines Kampfes und hört ein seltsames Geräusch.",
             "reveals": ["Kampfspuren", "Seltsames Geräusch"],
             "quality_notes": ["Enhanced: auditives Element hinzugefügt"],
         },
@@ -832,7 +834,7 @@ _MOCK_REVIEW_REPAIR: dict[str, Any] = {
             "quality_notes": ["Repariert: mehr Atmosphäre"],
         },
         "node_003": {
-            "scene_goal": "Spieler findet Spuren eines Kampfes und hört ein seltsames Geräusch.",
+            "scene_goal": "Protagonist findet Spuren eines Kampfes und hört ein seltsames Geräusch.",
             "reveals": ["Kampfspuren", "Seltsames Geräusch"],
             "quality_notes": ["Repariert: Geräusch hinzugefügt für mehr Spannung"],
         },

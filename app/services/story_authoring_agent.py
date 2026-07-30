@@ -61,7 +61,7 @@ def _build_helios_outline_de() -> dict[str, Any]:
             "jemandem, der vor Jahren für tot erklärt wurde."
         ),
         "main_conflict": (
-            "Der Spieler muss herausfinden, was wirklich mit der "
+            "Der Protagonist muss herausfinden, was wirklich mit der "
             "Helios-Crew passiert ist, während die Stations-KI die "
             "Wahrheit aktiv manipuliert."
         ),
@@ -132,7 +132,7 @@ _HELIOS_GRAPH_INLINE: dict[str, Any] = {
     "nodes": {
         "node_001": {
             "id": "node_001", "title": "Notrufsignal", "type": "start",
-            "act": 1, "scene_goal": "Der Spieler entdeckt ein rätselhaftes Signal von der verlassenen Marsstation.",
+            "act": 1, "scene_goal": "Der Protagonist entdeckt ein rätselhaftes Signal von der verlassenen Marsstation.",
             "mood": "unheimlich",
             "location": "Orbitalstation Helios", "characters": ["Mira", "Captain Rao"],
             "reveals": ["Ein unmöglicher Notruf kommt von der verlassenen Station."],
@@ -170,7 +170,7 @@ _HELIOS_GRAPH_INLINE: dict[str, Any] = {
         },
         "node_004": {
             "id": "node_004", "title": "Die verschlossene Medbay", "type": "decision",
-            "act": 2, "scene_goal": "Der Spieler entdeckt, dass die medizinischen Protokolle manipuliert wurden.",
+            "act": 2, "scene_goal": "Der Protagonist entdeckt, dass die medizinischen Protokolle manipuliert wurden.",
             "mood": "bedrohlich",
             "location": "Medbay", "characters": ["Mira"],
             "reveals": ["Der letzte Med-Scan fand nach dem offiziellen Evakuierungsdatum statt."],

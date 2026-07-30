@@ -33,6 +33,24 @@ class StoryBriefCreate(BaseModel):
     themes: list[str] = Field(default_factory=list)
     forbidden_content: list[str] = Field(default_factory=list)
     notes: str | None = None
+    # ── protagonist / narrative voice (Spec §7.1) ───────────────────────
+    protagonist_name: str = Field(
+        default="",
+        max_length=64,
+        description="Name des Hauptcharakters (z.B. 'Jon Dow', 'Anika'). "
+                    "Leer = automatisch generieren.",
+    )
+    protagonist_pronouns: str = Field(
+        default="er",
+        max_length=16,
+        description="Pronomen für den Protagonisten: 'er', 'sie', 'es'.",
+    )
+    protagonist_description: str = Field(
+        default="",
+        max_length=500,
+        description="Kurzbeschreibung des Protagonisten (Rolle, Hintergrund, "
+                    "Motivation). Leer = automatisch generieren.",
+    )
 
     def to_storage_dict(self) -> dict[str, Any]:
         """Return the JSON-serialisable dict stored in ``brief_json``."""
