@@ -1169,7 +1169,7 @@ async def _run_regenerate_background(
             outline = await agent.generate_outline(brief_dict)
 
             _set_progress(task_id, "graph", "🔗 Generiere Graph…")
-            graph = await agent.generate_graph(outline, brief_dict)
+            graph = await agent.generate_graph(outline)
 
             _set_progress(task_id, "saving", "💾 Speichere neue Version…")
             await version_repo.create(
