@@ -101,6 +101,9 @@ Name: {protagonist_name}
 Pronouns: {protagonist_pronouns}
 (The story is told from this character's perspective. Never refer to "the user" or "the player".)
 
+=== CHARACTERS IN THIS STORY ===
+{personas_section}
+
 === CURRENT NODE ===
 Node ID: {node_id}
 Title: {title}
@@ -171,6 +174,7 @@ def build_scene_user_prompt(
     history: list[dict[str, str]] | None = None,
     protagonist_name: str = "",
     protagonist_pronouns: str = "er",
+    personas: list[dict] | None = None,
 ) -> str:
     """Build the user-side prompt for scene generation.
 
@@ -178,12 +182,25 @@ def build_scene_user_prompt(
     signature used by older callers (node_id, scene_goal, location,
     characters, world_state, user_input).
     """
+    # Format personas list
+    p_list = personas or []
+    if p_list:
+        personas_lines = [
+            f"- {p.get('name', '?')} ({p.get('role', 'keine Rolle')}) "
+            f"— {p.get('description', '')[:120]}"
+            for p in p_list
+        ]
+        personas_section = "Characters in the story (always use their names):\n" + "\n".join(personas_lines)
+    else:
+        personas_section = "(none besides the protagonist)"
+
     return SCENE_USER_TEMPLATE.format(
         genre=genre or world_state.get("genre", "(unspecified)"),
         tone=tone or world_state.get("tone", "(unspecified)"),
         language=language,
         protagonist_name=protagonist_name or world_state.get("protagonist_name", "Der Protagonist"),
         protagonist_pronouns=protagonist_pronouns or world_state.get("protagonist_pronouns", "er"),
+        personas_section=personas_section,
         node_id=node_id,
         title=title or node_id,
         scene_goal=scene_goal,

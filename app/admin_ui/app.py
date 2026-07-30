@@ -1072,6 +1072,7 @@ async def update_persona(
     protagonist_name = str(body.get("protagonist_name", "")).strip()
     protagonist_pronouns = str(body.get("protagonist_pronouns", "er")).strip()
     protagonist_description = str(body.get("protagonist_description", "")).strip()
+    personas_raw = body.get("personas", [])
 
     if len(protagonist_name) > 64:
         errors.append("protagonist_name zu lang (max 64 Zeichen)")
@@ -1079,6 +1080,24 @@ async def update_persona(
         errors.append("Pronomen muss 'er', 'sie' oder 'es' sein")
     if len(protagonist_description) > 500:
         errors.append("Beschreibung zu lang (max 500 Zeichen)")
+
+    # Validate personas list
+    if not isinstance(personas_raw, list):
+        errors.append("personas muss eine Liste sein")
+    else:
+        for i, p in enumerate(personas_raw):
+            if not isinstance(p, dict):
+                errors.append(f"Persona #{i + 1} ist kein Objekt")
+                continue
+            pname = str(p.get("name", "")).strip()
+            if not pname:
+                errors.append(f"Persona #{i + 1} hat keinen Namen")
+            if len(pname) > 64:
+                errors.append(f"Persona #{i + 1}: Name zu lang (max 64)")
+            if p.get("pronouns", "er") not in ("er", "sie", "es"):
+                errors.append(f"Persona #{i + 1}: Pronomen ungültig")
+            if len(str(p.get("description", ""))) > 500:
+                errors.append(f"Persona #{i + 1}: Beschreibung zu lang")
 
     if errors:
         return JSONResponse(status_code=400, content={"ok": False, "errors": errors})
@@ -1098,6 +1117,7 @@ async def update_persona(
     brief["protagonist_name"] = protagonist_name
     brief["protagonist_pronouns"] = protagonist_pronouns
     brief["protagonist_description"] = protagonist_description
+    brief["personas"] = personas_raw
 
     stmt = (
         sa_update(_SD)

@@ -178,6 +178,7 @@ class LLMService(ABC):
             history=ctx.history,
             protagonist_name=ctx.protagonist_name or ctx.world_state.get("protagonist_name", ""),
             protagonist_pronouns=ctx.protagonist_pronouns or ctx.world_state.get("protagonist_pronouns", "er"),
+            personas=ctx.personas or ctx.world_state.get("personas", []),
         )
 
         system_prompt = build_scene_system_prompt(

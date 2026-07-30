@@ -49,6 +49,8 @@ class StoryContext:
     # ── protagonist / narrative voice ───────────────────────────────
     protagonist_name: str = ""
     protagonist_pronouns: str = "er"
+    # ── side characters (personas) ──────────────────────────────────
+    personas: list[dict] = field(default_factory=list)
 
 
 @dataclass

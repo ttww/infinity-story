@@ -167,6 +167,8 @@ class StoryBrief(BaseModel):
     protagonist_name: str = ""
     protagonist_pronouns: str = "er"
     protagonist_description: str = ""
+    # ── side characters (personas) ──────────────────────────────────
+    personas: list[dict] = Field(default_factory=list)
 
 
 class StoryOutline(BaseModel):

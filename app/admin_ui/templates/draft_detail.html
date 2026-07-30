@@ -323,7 +323,7 @@
                 <div class="settings-form">
                     <div class="settings-pair">
                         <div class="settings-field">
-                            <label for="protagonist_name">Name</label>
+                            <label for="protagonist_name">Hauptcharakter (Name)</label>
                             <input type="text" id="protagonist_name" name="protagonist_name"
                                    value="{{ brief_data.get('protagonist_name', '') }}" maxlength="64"
                                    placeholder="z.B. Jon Dow, Anika">
@@ -338,14 +338,43 @@
                         </div>
                     </div>
                     <div class="settings-field" style="grid-column: 1 / -1;">
-                        <label for="protagonist_description">Beschreibung (Rolle, Hintergrund, Motivation)</label>
+                        <label for="protagonist_description">Beschreibung (Rolle, Hintergrund)</label>
                         <textarea id="protagonist_description" name="protagonist_description"
-                                  rows="3" maxlength="500"
+                                  rows="2" maxlength="500"
                                   placeholder="Z.B. Ein erfahrener Pilot, der nach dem Absturz auf einer fremden Station ums Überleben kämpft."
                                   style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.5rem;font-size:0.85rem;resize:vertical;">{{ brief_data.get('protagonist_description', '') }}</textarea>
                     </div>
-                    <div class="settings-actions">
-                        <button type="button" class="btn" id="btn-save-persona" onclick="savePersona()">💾 Persona speichern</button>
+
+                    <!-- Side Characters (Personas) -->
+                    <h3 style="color:#a78bfa;font-size:0.85rem;margin-top:0.5rem;margin-bottom:0.25rem;grid-column:1/-1;">👥 Nebencharaktere</h3>
+                    <div id="personas-list" style="grid-column:1/-1;">
+                        {% set pdata = brief_data.get('personas', []) %}
+                        {% if pdata and pdata|length > 0 %}
+                            {% for p in pdata %}
+                            <div class="persona-entry" data-idx="{{ loop.index0 }}" style="background:#0f0f1a;border:1px solid #333;border-radius:6px;padding:0.5rem;margin-bottom:0.4rem;">
+                                <div style="display:grid;grid-template-columns:1fr 100px 80px;gap:0.3rem;margin-bottom:0.3rem;">
+                                    <input type="text" class="persona-name" value="{{ p.get('name','') }}" placeholder="Name" style="background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">
+                                    <input type="text" class="persona-role" value="{{ p.get('role','') }}" placeholder="Rolle" style="background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">
+                                    <select class="persona-pronouns" style="background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">
+                                        <option value="er" {% if p.get('pronouns') == 'er' %}selected{% endif %}>er</option>
+                                        <option value="sie" {% if p.get('pronouns') == 'sie' %}selected{% endif %}>sie</option>
+                                        <option value="es" {% if p.get('pronouns') == 'es' %}selected{% endif %}>es</option>
+                                    </select>
+                                </div>
+                                <div style="display:flex;gap:0.3rem;">
+                                    <input type="text" class="persona-description" value="{{ p.get('description','') }}" placeholder="Kurzbeschreibung" style="flex:1;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">
+                                    <button type="button" class="btn-remove-persona" style="background:#dc2626;color:#fff;border:none;border-radius:3px;padding:0.2rem 0.5rem;cursor:pointer;font-size:0.75rem;">✕</button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    <div style="grid-column:1/-1;margin-top:0.25rem;">
+                        <button type="button" class="btn" id="btn-add-persona" onclick="addPersonaEntry()" style="font-size:0.75rem;padding:0.25rem 0.75rem;">➕ Nebencharakter hinzufügen</button>
+                    </div>
+
+                    <div class="settings-actions" style="margin-top:0.5rem;">
+                        <button type="button" class="btn" id="btn-save-persona" onclick="savePersona()">💾 Personas speichern</button>
                         <button type="button" class="btn" id="btn-regenerate-story" onclick="regenerateStory()" style="background:#7c3aed;">🔄 Geschichte neu generieren</button>
                         <span id="persona-msg" class="settings-msg"></span>
                     </div>
@@ -662,6 +691,48 @@
         }
 
         // ── Persona / Protagonist speichern ──
+        function collectPersonas() {
+            var personas = [];
+            document.querySelectorAll('#personas-list .persona-entry').forEach(function(el) {
+                var name = el.querySelector('.persona-name').value.trim();
+                if (!name) return;
+                personas.push({
+                    name: name,
+                    role: el.querySelector('.persona-role').value.trim(),
+                    pronouns: el.querySelector('.persona-pronouns').value,
+                    description: el.querySelector('.persona-description').value.trim(),
+                });
+            });
+            return personas;
+        }
+
+        function addPersonaEntry() {
+            var list = document.getElementById('personas-list');
+            var div = document.createElement('div');
+            div.className = 'persona-entry';
+            div.style.cssText = 'background:#0f0f1a;border:1px solid #333;border-radius:6px;padding:0.5rem;margin-bottom:0.4rem;';
+            div.innerHTML = [
+                '<div style="display:grid;grid-template-columns:1fr 100px 80px;gap:0.3rem;margin-bottom:0.3rem;">',
+                '<input type="text" class="persona-name" placeholder="Name" style="background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">',
+                '<input type="text" class="persona-role" placeholder="Rolle" style="background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">',
+                '<select class="persona-pronouns" style="background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;"><option value="er">er</option><option value="sie">sie</option><option value="es">es</option></select>',
+                '</div>',
+                '<div style="display:flex;gap:0.3rem;">',
+                '<input type="text" class="persona-description" placeholder="Kurzbeschreibung" style="flex:1;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:3px;padding:0.25rem;font-size:0.8rem;">',
+                '<button type="button" class="btn-remove-persona" style="background:#dc2626;color:#fff;border:none;border-radius:3px;padding:0.2rem 0.5rem;cursor:pointer;font-size:0.75rem;">✕</button>',
+                '</div>',
+            ].join('');
+            div.querySelector('.btn-remove-persona').addEventListener('click', function() { div.remove(); });
+            list.appendChild(div);
+        }
+
+        // Wire up remove buttons for existing personas
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.btn-remove-persona').forEach(function(btn) {
+                btn.addEventListener('click', function() { btn.closest('.persona-entry').remove(); });
+            });
+        });
+
         function savePersona() {
             const msgEl = document.getElementById('persona-msg');
             const btn = document.getElementById('btn-save-persona');
@@ -669,6 +740,7 @@
                 protagonist_name: document.getElementById('protagonist_name').value.trim(),
                 protagonist_pronouns: document.getElementById('protagonist_pronouns').value,
                 protagonist_description: document.getElementById('protagonist_description').value.trim(),
+                personas: collectPersonas(),
             };
             btn.disabled = true;
             btn.textContent = 'Speichert…';
@@ -715,6 +787,7 @@
                 protagonist_name: document.getElementById('protagonist_name').value.trim(),
                 protagonist_pronouns: document.getElementById('protagonist_pronouns').value,
                 protagonist_description: document.getElementById('protagonist_description').value.trim(),
+                personas: collectPersonas(),
             };
 
             fetch('/admin/draft/' + draftId + '/persona', {

@@ -13,6 +13,18 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# ── Persona schema (narrative characters) ─────────────────────────────
+
+class Persona(BaseModel):
+    """A named character in the story."""
+    name: str = Field(..., min_length=1, max_length=64)
+    role: str = Field(default="", max_length=128,
+                      description="Rolle im Story-Kontext (z.B. 'Pilot', 'Ärztin')")
+    pronouns: str = Field(default="er", max_length=16)
+    description: str = Field(default="", max_length=500,
+                             description="Hintergrund, Motivation, Besonderheiten")
+
+
 # ── Request schemas ────────────────────────────────────────────────────
 
 class StoryBriefCreate(BaseModel):
@@ -33,23 +45,23 @@ class StoryBriefCreate(BaseModel):
     themes: list[str] = Field(default_factory=list)
     forbidden_content: list[str] = Field(default_factory=list)
     notes: str | None = None
-    # ── protagonist / narrative voice (Spec §7.1) ───────────────────────
+    # ── protagonist / narrative voice ───────────────────────────────────
     protagonist_name: str = Field(
-        default="",
-        max_length=64,
-        description="Name des Hauptcharakters (z.B. 'Jon Dow', 'Anika'). "
-                    "Leer = automatisch generieren.",
+        default="", max_length=64,
+        description="Name des Hauptcharakters. Leer = automatisch generieren.",
     )
     protagonist_pronouns: str = Field(
-        default="er",
-        max_length=16,
-        description="Pronomen für den Protagonisten: 'er', 'sie', 'es'.",
+        default="er", max_length=16,
+        description="Pronomen des Hauptcharakters: 'er', 'sie', 'es'.",
     )
     protagonist_description: str = Field(
-        default="",
-        max_length=500,
-        description="Kurzbeschreibung des Protagonisten (Rolle, Hintergrund, "
-                    "Motivation). Leer = automatisch generieren.",
+        default="", max_length=500,
+        description="Kurzbeschreibung des Hauptcharakters.",
+    )
+    personas: list[Persona] = Field(
+        default_factory=list,
+        description="Nebencharaktere mit Namen, Rolle, Pronomen, Beschreibung. "
+                    "Der Hauptcharakter wird über protagonist_name definiert.",
     )
 
     def to_storage_dict(self) -> dict[str, Any]:
