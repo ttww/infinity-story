@@ -308,6 +308,14 @@ async def draft_detail(request: Request, draft_id: str, session: AsyncSession = 
                 nid, node, review_issues, val_errors, val_warnings
             )
 
+    # Parse brief JSON for protagonist / persona data
+    brief_data = {}
+    if draft.brief_json:
+        try:
+            brief_data = json.loads(draft.brief_json)
+        except (json.JSONDecodeError, TypeError):
+            brief_data = {}
+
     return templates.TemplateResponse(request, "draft_detail.html", {
         "draft": {
             "id": draft.id,
@@ -342,6 +350,7 @@ async def draft_detail(request: Request, draft_id: str, session: AsyncSession = 
         "review": review_data,
         "validation": validation_data,
         "eligibility": eligibility,
+        "brief_data": brief_data,
     })
 
 
@@ -1044,6 +1053,154 @@ async def update_story_settings(
         status_code=200,
         content={"ok": True, "values": values},
     )
+
+
+@admin_app.post("/draft/{draft_id}/persona", response_class=JSONResponse)
+async def update_persona(
+    draft_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Update protagonist / persona data in the draft's brief_json."""
+    from sqlalchemy import update as sa_update
+    from app.models.story_draft import StoryDraft as _SD
+
+    body = await request.json()
+    errors: list[str] = []
+
+    # Validate fields
+    protagonist_name = str(body.get("protagonist_name", "")).strip()
+    protagonist_pronouns = str(body.get("protagonist_pronouns", "er")).strip()
+    protagonist_description = str(body.get("protagonist_description", "")).strip()
+
+    if len(protagonist_name) > 64:
+        errors.append("protagonist_name zu lang (max 64 Zeichen)")
+    if protagonist_pronouns not in ("er", "sie", "es"):
+        errors.append("Pronomen muss 'er', 'sie' oder 'es' sein")
+    if len(protagonist_description) > 500:
+        errors.append("Beschreibung zu lang (max 500 Zeichen)")
+
+    if errors:
+        return JSONResponse(status_code=400, content={"ok": False, "errors": errors})
+
+    # Load current brief_json, update protagonist fields
+    draft = await session.get(_SD, draft_id)
+    if draft is None:
+        return JSONResponse(status_code=404, content={"ok": False, "errors": ["Draft not found"]})
+
+    brief = {}
+    if draft.brief_json:
+        try:
+            brief = json.loads(draft.brief_json)
+        except (json.JSONDecodeError, TypeError):
+            brief = {}
+
+    brief["protagonist_name"] = protagonist_name
+    brief["protagonist_pronouns"] = protagonist_pronouns
+    brief["protagonist_description"] = protagonist_description
+
+    stmt = (
+        sa_update(_SD)
+        .where(_SD.id == draft_id)
+        .values(brief_json=json.dumps(brief, ensure_ascii=False))
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+    return JSONResponse(content={"ok": True})
+
+
+@admin_app.post("/draft/{draft_id}/regenerate", response_class=JSONResponse)
+async def regenerate_story(
+    draft_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Regenerate the story graph with updated brief data (e.g. new persona)."""
+    from app.persistence.database import get_session_factory
+    from app.persistence.authoring_repositories import StoryDraftRepository
+    from app.models.story_draft import StoryDraft as _SD
+    from app.core.config import get_settings
+
+    draft = await session.get(_SD, draft_id)
+    if draft is None:
+        return JSONResponse(status_code=404, content={"ok": False, "detail": "Draft not found"})
+
+    task_id = f"regenerate-{uuid4().hex[:8]}"
+    _task_progress[task_id] = {"phase": "starting", "message": "⏳ Starte Neu-Generierung…", "task_id": task_id}
+
+    asyncio.create_task(_run_regenerate_background(
+        task_id, draft_id, draft.brief_json,
+        get_session_factory(),
+    ))
+
+    return {"task_id": task_id, "ok": True}
+
+
+async def _run_regenerate_background(
+    task_id: str, draft_id: str, brief_json: str,
+    session_factory,
+):
+    """Regenerate outline + graph in background."""
+    from app.persistence.authoring_repositories import StoryDraftRepository, StoryDraftVersionRepository
+    from app.services.story_authoring_agent import get_authoring_agent
+    from app.core.config import get_settings
+    from app.models import StoryBrief
+    from app.models.enums import DraftStatus
+    from sqlalchemy import update as sa_update
+    from app.models.story_draft import StoryDraft as _SD
+
+    _set_progress(task_id, "loading", "📂 Lade Draft…")
+
+    async with session_factory() as session:
+        try:
+            draft_repo = StoryDraftRepository(session)
+            version_repo = StoryDraftVersionRepository(session)
+
+            _set_progress(task_id, "parsing", "📖 Analysiere Brief-Daten…")
+            brief_dict = json.loads(brief_json) if brief_json else {}
+            brief = StoryBrief(**brief_dict)
+            brief_dict = brief.model_dump()
+
+            settings = get_settings()
+            use_dummy = settings.llm_provider == "mock"
+            agent = get_authoring_agent(dummy=use_dummy)
+
+            _set_progress(task_id, "outline", "📝 Generiere Outline mit neuer Persona…")
+            outline = await agent.generate_outline(brief_dict)
+
+            _set_progress(task_id, "graph", "🔗 Generiere Graph…")
+            graph = await agent.generate_graph(outline, brief_dict)
+
+            _set_progress(task_id, "saving", "💾 Speichere neue Version…")
+            await version_repo.create(
+                draft_id=draft_id,
+                graph=graph,
+                outline=outline,
+                created_by="regenerate",
+                notes=f"Neu generiert mit Persona: {brief_dict.get('protagonist_name', '(keine)')}",
+            )
+
+            await draft_repo.update_status(
+                draft_id, DraftStatus.NEEDS_REVIEW,
+            )
+            await session.commit()
+
+            event_log.emit_done(
+                "regenerate", "regenerate_story",
+                f"Story regenerated for '{draft_id}' with new persona",
+                draft_id=draft_id,
+            )
+
+            _set_progress(task_id, "done", json.dumps({
+                "ok": True,
+            }, ensure_ascii=False))
+
+        except Exception as exc:
+            event_log.emit_error("regenerate", "regenerate_story",
+                f"Regenerate failed: {exc}", draft_id=draft_id)
+            _set_progress(task_id, "error", f"Fehler: {exc}")
+            import traceback
+            traceback.print_exc()
 
 
 @admin_app.post("/draft/{draft_id}/check-limits", response_class=JSONResponse)

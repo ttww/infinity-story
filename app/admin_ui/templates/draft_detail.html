@@ -317,6 +317,41 @@
                 </div>
             </div>
 
+            <!-- Persona / Protagonist (t_persona_editor) -->
+            <div class="card" id="persona-card">
+                <h2>🎭 Protagonist / Erzählstimme</h2>
+                <div class="settings-form">
+                    <div class="settings-pair">
+                        <div class="settings-field">
+                            <label for="protagonist_name">Name</label>
+                            <input type="text" id="protagonist_name" name="protagonist_name"
+                                   value="{{ brief_data.get('protagonist_name', '') }}" maxlength="64"
+                                   placeholder="z.B. Jon Dow, Anika">
+                        </div>
+                        <div class="settings-field">
+                            <label for="protagonist_pronouns">Pronomen</label>
+                            <select id="protagonist_pronouns" name="protagonist_pronouns">
+                                <option value="er" {% if brief_data.get('protagonist_pronouns') == 'er' %}selected{% endif %}>er/ihm</option>
+                                <option value="sie" {% if brief_data.get('protagonist_pronouns') == 'sie' %}selected{% endif %}>sie/ihr</option>
+                                <option value="es" {% if brief_data.get('protagonist_pronouns') == 'es' %}selected{% endif %}>es</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-field" style="grid-column: 1 / -1;">
+                        <label for="protagonist_description">Beschreibung (Rolle, Hintergrund, Motivation)</label>
+                        <textarea id="protagonist_description" name="protagonist_description"
+                                  rows="3" maxlength="500"
+                                  placeholder="Z.B. Ein erfahrener Pilot, der nach dem Absturz auf einer fremden Station ums Überleben kämpft."
+                                  style="width:100%;background:#0a0a14;border:1px solid #333;color:#e0e0e0;border-radius:4px;padding:0.5rem;font-size:0.85rem;resize:vertical;">{{ brief_data.get('protagonist_description', '') }}</textarea>
+                    </div>
+                    <div class="settings-actions">
+                        <button type="button" class="btn" id="btn-save-persona" onclick="savePersona()">💾 Persona speichern</button>
+                        <button type="button" class="btn" id="btn-regenerate-story" onclick="regenerateStory()" style="background:#7c3aed;">🔄 Geschichte neu generieren</button>
+                        <span id="persona-msg" class="settings-msg"></span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Review Report -->
             <div class="card">
                 <h2>Review Report</h2>
@@ -623,6 +658,114 @@
                 btn.disabled = false;
                 btn.textContent = '💾 Speichern';
                 setTimeout(() => { if (msgEl.className.includes('ok')) { msgEl.textContent = ''; } }, 3000);
+            });
+        }
+
+        // ── Persona / Protagonist speichern ──
+        function savePersona() {
+            const msgEl = document.getElementById('persona-msg');
+            const btn = document.getElementById('btn-save-persona');
+            const payload = {
+                protagonist_name: document.getElementById('protagonist_name').value.trim(),
+                protagonist_pronouns: document.getElementById('protagonist_pronouns').value,
+                protagonist_description: document.getElementById('protagonist_description').value.trim(),
+            };
+            btn.disabled = true;
+            btn.textContent = 'Speichert…';
+            msgEl.textContent = '';
+            msgEl.className = 'settings-msg';
+
+            fetch('/admin/draft/' + draftId + '/persona', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    msgEl.textContent = '✅ Persona gespeichert';
+                    msgEl.className = 'settings-msg ok';
+                } else {
+                    msgEl.textContent = '❌ ' + (data.errors || ['Fehler']).join('; ');
+                    msgEl.className = 'settings-msg err';
+                }
+            })
+            .catch(err => {
+                msgEl.textContent = '❌ Netzwerkfehler: ' + err;
+                msgEl.className = 'settings-msg err';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '💾 Persona speichern';
+                setTimeout(() => { if (msgEl.className.includes('ok')) { msgEl.textContent = ''; } }, 3000);
+            });
+        }
+
+        // ── Geschichte mit neuer Persona neu generieren ──
+        function regenerateStory() {
+            const msgEl = document.getElementById('persona-msg');
+            const btn = document.getElementById('btn-regenerate-story');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="elb-spinner"></span> Generiere...';
+            msgEl.textContent = '⏳ Generiere Geschichte neu...';
+            msgEl.className = 'settings-msg';
+
+            // First save the persona, then regenerate
+            const payload = {
+                protagonist_name: document.getElementById('protagonist_name').value.trim(),
+                protagonist_pronouns: document.getElementById('protagonist_pronouns').value,
+                protagonist_description: document.getElementById('protagonist_description').value.trim(),
+            };
+
+            fetch('/admin/draft/' + draftId + '/persona', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ok) throw new Error((data.errors || ['Fehler']).join('; '));
+                // Now trigger regeneration
+                return fetch('/admin/draft/' + draftId + '/regenerate', { method: 'POST' });
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok && data.task_id) {
+                    msgEl.textContent = '⏳ Generierung läuft im Hintergrund...';
+                    // Connect EventSource to track progress
+                    var es = new EventSource('/admin/draft/' + draftId + '/task-status/' + data.task_id);
+                    es.onmessage = function(evt) {
+                        try {
+                            var task = JSON.parse(evt.data);
+                            if (task.phase === 'done') {
+                                msgEl.textContent = '✅ Fertig – Seite wird neu geladen...';
+                                es.close();
+                                setTimeout(function(){window.location.reload();}, 1000);
+                            } else if (task.phase === 'error') {
+                                msgEl.textContent = '❌ ' + (task.message || 'Fehler');
+                                btn.disabled = false;
+                                btn.innerHTML = '🔄 Geschichte neu generieren';
+                                es.close();
+                            } else {
+                                msgEl.textContent = task.message || task.phase;
+                            }
+                        } catch(e){}
+                    };
+                    es.onerror = function() {
+                        if (es.readyState === EventSource.CLOSED) {
+                            msgEl.textContent = '⚠️ Verbindung getrennt – Seite wird neu geladen...';
+                            setTimeout(function(){window.location.reload();}, 2000);
+                        }
+                    };
+                } else {
+                    throw new Error(data.detail || 'Fehler bei der Generierung');
+                }
+            })
+            .catch(err => {
+                msgEl.textContent = '❌ ' + err.message;
+                msgEl.className = 'settings-msg err';
+                btn.disabled = false;
+                btn.innerHTML = '🔄 Geschichte neu generieren';
             });
         }
 

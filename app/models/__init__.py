@@ -163,6 +163,10 @@ class StoryBrief(BaseModel):
     themes: list[str] = Field(default_factory=list)
     forbidden_content: list[str] = Field(default_factory=list)
     notes: str = ""
+    # ── protagonist / narrative voice ───────────────────────────────
+    protagonist_name: str = ""
+    protagonist_pronouns: str = "er"
+    protagonist_description: str = ""
 
 
 class StoryOutline(BaseModel):
