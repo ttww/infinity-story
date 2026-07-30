@@ -1229,6 +1229,7 @@
                 .attr('data-node-id', d => d.id)
                 .style('cursor', 'pointer')
                 .on('click', function(event, d) {
+                    if (d._wasDragged) return;  // skip click if node was dragged
                     event.stopPropagation();
                     showNodeDetail(d.id);
                 })
@@ -1258,10 +1259,12 @@
                         if (!event.active && !isFrozen) simulation.alphaTarget(0.3).restart();
                         d.fx = d.x;
                         d.fy = d.y;
+                        d._wasDragged = false;
                     })
                     .on('drag', function(event, d) {
                         d.fx = event.x;
                         d.fy = event.y;
+                        d._wasDragged = true;
                     })
                     .on('end', function(event, d) {
                         if (!event.active && !isFrozen) simulation.alphaTarget(0);
