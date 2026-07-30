@@ -106,9 +106,14 @@ class ReviewRepairAgent:
                 summary = result.get("summary", "")
 
                 if repaired_graph is None:
-                    last_error = "LLM returned no repaired_graph"
-                    logger.warning("Iteration %d: %s", iteration + 1, last_error)
-                    continue
+                    # LLM returned review without graph — keep original graph
+                    logger.warning(
+                        "Iteration %d: LLM returned no repaired_graph, "
+                        "keeping original graph (score=%.1f, %d issues)",
+                        iteration + 1, score, len(issues),
+                    )
+                    repaired_graph = current_graph
+                    # Don't continue — accept score/issues with original graph
 
                 # Validate structural integrity
                 if not self._validate_graph(repaired_graph):
