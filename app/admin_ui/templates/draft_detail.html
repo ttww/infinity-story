@@ -262,6 +262,7 @@
             <form method="POST" action="/admin/draft/{{ draft.id }}/delete" style="display:inline" onsubmit="return confirmDeleteDetail('{{ draft.title|replace("'", "\\'") }}')">
                 <button class="btn btn-danger" type="submit">🗑 Löschen</button>
             </form>
+            <button class="btn" style="background:#444;" onclick="resetDraftStatus()" id="btn-reset-status">↩ Status zurücksetzen</button>
         </div>
 
         <div class="grid">
@@ -2205,6 +2206,30 @@
     <script>
     function confirmDeleteDetail(title) {
         return confirm('Möchtest du die Story "' + title + '" wirklich löschen?\n\nDies löscht alle Versionen, Reviews, Validierungen und Generation-Jobs. Veröffentlichte Szenarien bleiben erhalten.');
+    }
+
+    function resetDraftStatus() {
+        if (!confirm('Status auf "needs_review" zurücksetzen?')) return;
+        const btn = document.getElementById('btn-reset-status');
+        btn.disabled = true;
+        btn.textContent = '⏳ Setze zurück...';
+        fetch('/admin/draft/' + draftId + '/reset-status', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                if (typeof showToast === 'function') showToast('✅ Status zurückgesetzt auf needs_review', 'success');
+                setTimeout(function() { window.location.reload(); }, 500);
+            } else {
+                if (typeof showToast === 'function') showToast('❌ ' + (data.detail || 'Fehler'), 'error');
+                btn.disabled = false;
+                btn.textContent = '↩ Status zurücksetzen';
+            }
+        })
+        .catch(function(err) {
+            if (typeof showToast === 'function') showToast('❌ Netzwerkfehler: ' + err.message, 'error');
+            btn.disabled = false;
+            btn.textContent = '↩ Status zurücksetzen';
+        });
     }
     </script>
 

@@ -433,6 +433,9 @@ async def _run_review_background(
                 event_log.emit_error("review", "review", f"No version found {version_id}", draft_id=draft_id)
                 return
 
+            # Fetch draft to check current status
+            draft = await draft_repo.get_by_id(draft_id)
+
             event_log.emit_start("review", "critic_review",
                 f"Running review+repair on '{draft_title}'",
                 draft_id=draft_id, detail={"version_id": version_id},
@@ -491,8 +494,15 @@ async def _run_review_background(
                 .values(quality_score=score)
             )
 
-            if score < 7.0:
-                await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+            if score < 7.0 and draft.status != DraftStatus.NEEDS_REVIEW.value:
+                # validated → needs_review is not directly allowed; go via needs_repair
+                try:
+                    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+                except ValueError:
+                    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REPAIR)
+                    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+            elif score < 7.0:
+                pass  # already needs_review
             else:
                 try:
                     await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
@@ -566,6 +576,9 @@ async def _run_repair_background(
                 event_log.emit_error("repair", "repair", f"No version {version_id}", draft_id=draft_id)
                 return
 
+            # Fetch draft to check current status
+            draft = await draft_repo.get_by_id(draft_id)
+
             event_log.emit_start("repair", "repair_pass",
                 f"Running repair on '{draft_title}'",
                 draft_id=draft_id, detail={"version_id": version_id},
@@ -612,13 +625,19 @@ async def _run_repair_background(
                 .values(quality_score=score)
             )
 
-            if score < 7.0:
-                await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+            if score < 7.0 and draft.status != DraftStatus.NEEDS_REVIEW.value:
+                try:
+                    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+                except ValueError:
+                    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REPAIR)
+                    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+            elif score < 7.0:
+                pass
             else:
                 try:
                     await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
                 except ValueError:
-                    pass  # bereits validated — kein Fehler
+                    pass
 
             await session.commit()
 
@@ -1323,6 +1342,40 @@ async def delete_draft(draft_id: str, session: AsyncSession = Depends(get_sessio
 
     event_log.emit_done("delete", "delete_draft", f"Draft '{title}' ({draft_id}) deleted with all versions, reviews, and jobs", draft_id=draft_id, detail={"title": title, "draft_id": draft_id})
     return RedirectResponse(url="/admin/", status_code=303)
+
+
+@admin_app.post("/draft/{draft_id}/reset-status", response_class=JSONResponse)
+async def reset_draft_status(
+    draft_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Reset a draft's status from validated/approved to needs_review.
+    Uses the umbrella route via needs_repair."""
+    from app.models.enums import DraftStatus
+    from app.persistence.authoring_repositories import StoryDraftRepository
+
+    draft_repo = StoryDraftRepository(session)
+    draft = await draft_repo.get_by_id(draft_id)
+    if draft is None:
+        return JSONResponse(status_code=404, content={"ok": False, "detail": "Draft not found"})
+
+    current = DraftStatus(draft.status)
+    if current == DraftStatus.NEEDS_REVIEW:
+        return JSONResponse(content={"ok": True, "status": "needs_review"})
+
+    try:
+        await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+    except ValueError:
+        # Umweg via needs_repair
+        await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REPAIR)
+        await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+
+    await session.commit()
+    event_log.emit_done("config", "reset_status",
+        f"Draft '{draft.title}' status reset to needs_review",
+        draft_id=draft_id,
+    )
+    return JSONResponse(content={"ok": True, "status": "needs_review"})
 
 
 @admin_app.get("/draft/{draft_id}/simulate", response_class=HTMLResponse)
