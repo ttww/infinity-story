@@ -39,8 +39,9 @@ class ReviewRepairAgent:
     ) -> None:
         self._llm = llm
         self._max_iterations = max_iterations
-        # Reuse the structural validator from StoryRepairAgent
+        # Reuse the structural validator and patch applier from StoryRepairAgent
         self._validate_graph = StoryRepairAgent._validate_graph_structure
+        self._apply_patches = StoryRepairAgent._apply_patches
 
     @property
     def llm(self) -> LLMService:
@@ -79,8 +80,9 @@ class ReviewRepairAgent:
             f"{json.dumps(graph, ensure_ascii=False, indent=2)}\n\n"
             "=== TASK ===\n"
             "Review the story graph against ALL 13 criteria from your "
-            "instructions. Fix every issue you find directly in the graph. "
-            "Return the COMPLETE repaired graph."
+            "instructions. Fix every issue by returning ONLY the patches "
+            "(node_patches, new_nodes, deleted_nodes). Do NOT return "
+            "the full graph."
         )
 
         current_graph = graph
@@ -102,22 +104,30 @@ class ReviewRepairAgent:
 
                 score = result.get("score", 0.0)
                 issues = result.get("issues", [])
-                repaired_graph = result.get("repaired_graph") or result.get("graph")
                 summary = result.get("summary", "")
 
-                if repaired_graph is None:
-                    # LLM returned review without graph — keep original graph
-                    logger.warning(
-                        "Iteration %d: LLM returned no repaired_graph, "
-                        "keeping original graph (score=%.1f, %d issues)",
-                        iteration + 1, score, len(issues),
+                # Apply patches to the original graph (or keep unchanged)
+                has_patches = bool(
+                    result.get("node_patches")
+                    or result.get("new_nodes")
+                    or result.get("deleted_nodes")
+                )
+                if has_patches:
+                    repaired_graph = self._apply_patches(current_graph, result)
+                    logger.info(
+                        "Iteration %d: applied patches → graph changed",
+                        iteration + 1,
                     )
+                else:
                     repaired_graph = current_graph
-                    # Don't continue — accept score/issues with original graph
+                    logger.info(
+                        "Iteration %d: no patches — graph unchanged (score=%.1f)",
+                        iteration + 1, score,
+                    )
 
                 # Validate structural integrity
                 if not self._validate_graph(repaired_graph):
-                    last_error = "Repaired graph failed structural validation"
+                    last_error = "Patched graph failed structural validation"
                     logger.warning("Iteration %d: %s", iteration + 1, last_error)
                     continue
 
@@ -166,7 +176,7 @@ class ReviewRepairAgent:
                     "=== TASK ===\n"
                     "The story graph still needs improvement. Fix ALL remaining "
                     "issues listed above AND check for any new issues. "
-                    "Return the COMPLETE repaired graph."
+                    "Return ONLY patches (node_patches, new_nodes, deleted_nodes)."
                 )
 
             except (LLMResponseError, json.JSONDecodeError, ValueError) as exc:

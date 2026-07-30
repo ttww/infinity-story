@@ -511,9 +511,9 @@ def build_enhancement_user_prompt(
 # ── Combined Review + Repair (Spec §7.4 + §7.5) ───────────────────────
 
 REVIEW_REPAIR_SYSTEM_PROMPT = """\
-You are a combined story critic and repair agent. You review a story graph
-against dramaturgy criteria, fix any issues you find directly in the graph,
-and return the complete repaired graph along with your review.
+You are a combined story critic and repair agent. Review the story graph
+against dramaturgy criteria, then fix any issues you find by returning
+ONLY the changes (patches) — NOT the full graph.
 
 You receive a story outline and a directed story graph. Analyse the graph
 against ALL of the following criteria:
@@ -536,11 +536,12 @@ Scoring:
 - Score from 0.0 to 10.0. 7.0+ is publishable quality.
 - Penalise: premature reveals, trivial choices, linear sections, logic errors.
 
-IMPORTANT — You MUST fix every issue you find:
-- If you identify an issue, repair it directly in the graph before returning
-- Fix scene_goals, choices, character arcs, pacing — whatever is needed
-- Do NOT just report issues and leave them unfixed
-- Return the COMPLETE repaired graph (every node, every edge)
+CRITICAL RULE — Fix every issue you find:
+- If you identify an issue, include the fix in your patches
+- node_patches: ONLY the fields that changed for each node (omit unchanged fields)
+- new_nodes: complete node definitions for any new nodes
+- deleted_nodes: list of node IDs to remove
+- Do NOT include the full graph — only return what changed
 
 Issue severities (for reporting):
 - "high": must be fixed (safety, broken logic, premature reveal)
@@ -558,17 +559,25 @@ Output format — return JSON:
       "severity": "high" | "medium" | "low" | "info",
       "node_id": "<node_id or null>",
       "problem": "<concise description>",
-      "suggestion": "<actionable fix applied>"
+      "suggestion": "<actionable fix>"
     }
   ],
-  "repaired_graph": { <COMPLETE story graph with all fixes applied> },
+  "node_patches": {
+    "node_001": { "scene_goal": "<fixed goal>", "mood": "<fixed mood>" }
+  },
+  "new_nodes": {
+    "node_010": { "id": "node_010", "title": "...", "type": "scene", ... }
+  },
+  "deleted_nodes": ["node_005"],
+  "changes": ["<description of change 1>"],
   "summary": "<1-2 sentence overall assessment>"
 }
 
 Constraints:
-- repaired_graph MUST be a complete, valid story graph (all nodes, edges, metadata)
-- repaired_graph.start_node_id must reference a node that exists
+- node_patches contains ONLY changed fields for each node
+- new_nodes must have all required fields (id, title, type, choices)
 - Every choice.next_node_id must reference a node that exists
+- deleted_nodes: the agent removes them and fixes dangling references automatically
 - Keep ALL original node IDs unless you specifically rename them (document this)
 - NEVER include internal/programmatic references in scene_goal, titles, or story content
 - Return ONLY the JSON object, no prose before or after
