@@ -216,6 +216,15 @@ class LLMService(ABC):
             )
             scene = self._parse_scene_json(response.text)
 
+        # Validate against internal marker patterns and retry once on failure
+        scene = await self._validate_and_repair_scene(
+            scene=scene,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
         return scene
 
     async def generate_json(
@@ -326,6 +335,109 @@ class LLMService(ABC):
         text += ']' * max(open_brackets, 0)
         text += '}' * max(open_braces, 0)
         return text
+
+    async def _validate_and_repair_scene(
+        self,
+        scene: Any,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> Any:
+        """Validate scene text for internal markers and retry once on failure.
+
+        Uses :func:`validate_story_text_markers` to scan ``scene.scene_text``
+        for internal/programmatic reference patterns (node IDs, JSON field
+        leaks, etc.).  If markers are found, a single re-generation attempt
+        is made with a corrective instruction appended to the system prompt.
+
+        The method is non-destructive: if the validator itself raises an
+        unexpected error, a warning is logged and the original scene is
+        returned unchanged (graceful degradation).
+
+        If the re-generation also fails validation, the failure details are
+        logged and the best-effort scene is returned so the pipeline does not
+        block all output — but the failure is visible in logs.
+        """
+        from app.story.story_text_validator import validate_story_text_markers
+
+        try:
+            result = validate_story_text_markers(scene.scene_text)
+        except Exception as exc:
+            logger.warning(
+                "Story text validator raised an unexpected error — "
+                "degrading gracefully, passing scene through unchanged: %s",
+                exc,
+            )
+            return scene
+
+        if result.passed:
+            return scene
+
+        # Validation failed — log details and retry once
+        match_details = ", ".join(
+            f"{m.pattern_name}='{m.matched_text}'@{m.offset}" for m in result.matches
+        )
+        logger.warning(
+            "Scene text failed internal marker validation "
+            "(patterns: %s) — retrying with correction",
+            match_details,
+        )
+
+        correction = (
+            "\n\nIMPORTANT: Your previous response contained internal "
+            "reference markers (e.g. node IDs, JSON field names, or "
+            "(Teil ...) annotations) that must NEVER appear in the "
+            "narrative prose. Write clean, immersive story text only. "
+            "Do NOT include any technical identifiers like 'node_001', "
+            "'scene_goal:', 'suggested_next_node', or '(Teil ...)'."
+        )
+
+        try:
+            response = await self._complete(
+                system_prompt + correction,
+                user_prompt,
+                json_mode=True,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            new_scene = self._parse_scene_json(response.text)
+        except Exception as exc:
+            logger.error(
+                "Re-generation after marker validation failure failed: %s "
+                "— returning original scene (markers may be present)",
+                exc,
+            )
+            return scene
+
+        # Validate the re-generated scene
+        try:
+            revalidation = validate_story_text_markers(new_scene.scene_text)
+        except Exception as exc:
+            logger.warning(
+                "Re-validation of re-generated scene raised an error — "
+                "returning re-generated scene unvalidated: %s",
+                exc,
+            )
+            return new_scene
+
+        if revalidation.passed:
+            logger.info("Re-generation after marker validation failure succeeded")
+            return new_scene
+
+        # Still failing after retry — log and escalate
+        rematch_details = ", ".join(
+            f"{m.pattern_name}='{m.matched_text}'@{m.offset}"
+            for m in revalidation.matches
+        )
+        logger.warning(
+            "Scene text still contains internal markers after re-generation "
+            "(patterns: %s) — escalating: returning best-effort scene but "
+            "markers are still present in output",
+            rematch_details,
+        )
+        return new_scene
 
     def _parse_scene_json(self, text: str) -> Any:
         """Parse a scene JSON response into a GeneratedScene."""

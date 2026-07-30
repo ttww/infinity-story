@@ -84,6 +84,21 @@ class TestExtendNodeText:
         result = extend_node_text(text, 5)
         assert count_sentences(result) == 5
 
+    def test_extend_does_not_produce_teil_markers(self):
+        """Placeholder sentences must never contain (Teil ...) markers."""
+        from app.story.story_text_validator import validate_story_text_markers
+        text = "Ein Satz."
+        result = extend_node_text(text, 5)
+        val = validate_story_text_markers(result)
+        assert val.passed, f"Internal marker found in placeholder: {[m.matched_text for m in val.matches]}"
+
+    def test_extend_empty_does_not_produce_teil_markers(self):
+        """Empty-text extension must also be clean of internal markers."""
+        from app.story.story_text_validator import validate_story_text_markers
+        result = extend_node_text("", 4, "Test Node")
+        val = validate_story_text_markers(result)
+        assert val.passed, f"Internal marker found in placeholder: {[m.matched_text for m in val.matches]}"
+
 
 # ── adjust_node_sentences tests ───────────────────────────────────
 

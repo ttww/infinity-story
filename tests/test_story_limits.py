@@ -411,9 +411,11 @@ class TestGenerateSceneSentenceValidation:
             session_id="s1", current_node=node,
             world_state={"genre": "scifi", "tone": "dark"},
         )
-        # Mock scene text is short — set min_sentences=10 to force retry
+        # Mock scene text is short — set min_sentences=10 to force retry.
+        # The mock also includes 'node_001' in scene text, triggering a
+        # marker-validation retry (+1 call).
         scene = await llm.generate_scene(ctx, min_sentences=10, max_sentences=20)
-        assert call_count == 2  # initial + 1 retry
+        assert call_count == 3  # initial + sentence retry + marker retry
 
     @pytest.mark.asyncio
     async def test_scene_no_retry_when_within_bounds(self):
@@ -439,10 +441,12 @@ class TestGenerateSceneSentenceValidation:
             session_id="s1", current_node=node,
             world_state={"genre": "scifi", "tone": "dark"},
         )
-        # Mock scene text: "[Mock scene] Knoten: ..." — 1-2 sentences.
-        # With min=1, max=10 it should be within bounds.
+        # Mock scene text: "[Mock scene] Knoten: node_001 — Test. ..." — 1-2 sentences.
+        # With min=1, max=10 it should be within sentence bounds.
+        # However, the mock text contains 'node_001', which triggers a
+        # marker-validation retry (+1 call).
         scene = await llm.generate_scene(ctx, min_sentences=1, max_sentences=10)
-        assert call_count == 1  # no retry needed
+        assert call_count == 2  # initial + marker retry
 
     @pytest.mark.asyncio
     async def test_scene_passes_limits_to_system_prompt(self):

@@ -373,97 +373,267 @@ async def get_node_detail(draft_id: str, node_id: str, session: AsyncSession = D
 
 
 @admin_app.post("/draft/{draft_id}/review")
-async def run_review(draft_id: str, session: AsyncSession = Depends(get_session)):
-    """Run critic review."""
+async def run_review(draft_id: str, request: Request, session: AsyncSession = Depends(get_session)):
+    """Start a critic review in the background and return a task_id.
+    Frontend polls GET /draft/{draft_id}/task-status/{task_id} via EventSource."""
+    from app.persistence.database import get_session_factory
+    from app.models.enums import DraftStatus
+
     draft, version, draft_repo, version_repo = await _get_draft_and_version(session, draft_id)
     if version is None:
         event_log.emit_error("review", "review", f"No version found for draft {draft_id}", draft_id=draft_id)
         raise HTTPException(status_code=404, detail="No version found")
 
-    graph_data = version_repo.parse_graph(version)
-    outline = version_repo.parse_outline(version) or {}
-    graph = load_graph_from_dict(graph_data)
+    task_id = f"review-{uuid4().hex[:8]}"
+    _task_progress[task_id] = {"phase": "starting", "message": "⏳ Starte Review…", "task_id": task_id}
 
-    event_log.emit_start("review", "critic_review", f"Running critic review on '{draft.title}'", draft_id=draft_id, detail={"version_id": version.id})
+    asyncio.create_task(_run_review_background(
+        task_id, draft_id,
+        version.id, draft.title,
+        get_session_factory(),
+    ))
 
-    critic = StoryCriticAgent()
-    result = await critic.review(outline, graph_data)
+    return {"task_id": task_id, "ok": True}
 
-    review_repo = StoryReviewReportRepository(session)
-    await review_repo.create(
-        draft_id=draft_id,
-        version_id=version.id,
-        score=result["score"],
-        issues=result["issues"],
-        summary=result.get("summary"),
-    )
 
-    # Update quality score directly
+async def _run_review_background(
+    task_id: str, draft_id: str,
+    version_id: str, draft_title: str,
+    session_factory,
+):
+    """Run combined review + repair in a background asyncio task.
+    Iterative refinement: if score < 7.0 the agent re-runs automatically."""
+    from app.persistence.authoring_repositories import StoryDraftRepository, StoryDraftVersionRepository, StoryReviewReportRepository
+    from app.services.story_review_repair_agent import ReviewRepairAgent
     from sqlalchemy import update as sa_update
     from app.models.story_draft import StoryDraft as _SD
-    stmt = sa_update(_SD).where(_SD.id == draft_id).values(quality_score=result["score"])
-    await session.execute(stmt)
-    await session.commit()
-
     from app.models.enums import DraftStatus
-    if result["score"] < 7.0:
-        await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REPAIR)
-        await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
 
-    issue_count = len(result.get("issues", []))
-    event_log.emit_done("review", "critic_review", f"Review completed: score {result['score']}, {issue_count} issues", draft_id=draft_id, detail={"score": result["score"], "issues": issue_count, "summary": result.get("summary", "")})
+    _set_progress(task_id, "loading", "📂 Lade Draft und Version…")
 
-    return RedirectResponse(url=f"/admin/draft/{draft_id}", status_code=303)
+    async with session_factory() as session:
+        try:
+            draft_repo = StoryDraftRepository(session)
+            version_repo = StoryDraftVersionRepository(session)
+            review_repo = StoryReviewReportRepository(session)
+
+            version = await version_repo.get_by_id(version_id)
+            if version is None:
+                _set_progress(task_id, "error", "Version nicht gefunden")
+                event_log.emit_error("review", "review", f"No version found {version_id}", draft_id=draft_id)
+                return
+
+            event_log.emit_start("review", "critic_review",
+                f"Running review+repair on '{draft_title}'",
+                draft_id=draft_id, detail={"version_id": version_id},
+            )
+
+            _set_progress(task_id, "parsing", "📖 Lese Graph und Gliederung…")
+            graph_data = version_repo.parse_graph(version)
+            outline = version_repo.parse_outline(version) or {}
+
+            _set_progress(task_id, "parsing", "📖 Analysiere Graph-Struktur ({})…".format(
+                len(graph_data.get("nodes", {}))))
+
+            # ── Combined Review + Repair mit Heartbeat ──
+            agent = ReviewRepairAgent()
+            result = await _run_with_heartbeat(
+                task_id, "review_repair",
+                [
+                    "📊 Starte Review + Reparatur (Iteration 1)…",
+                    "📖 Analysiere Story-Graph…",
+                    "🧐 Prüfe narrative Qualität…",
+                    "🔧 Repariere gefundene Issues…",
+                    "✅ Erstelle verbesserten Graphen…",
+                    "⏳ Noch am Arbeiten…",
+                ],
+                2.5,
+                agent.review_and_repair(outline, graph_data),
+            )
+
+            score = result.get("score", 0)
+            issues = result.get("issues", [])
+            repaired_graph = result.get("repaired_graph", graph_data)
+            iterations = result.get("iterations_used", 1)
+            _set_progress(task_id, "review_repair_done",
+                f"✅ Review+Reparatur abgeschlossen "
+                f"(Score: {score}/10, {len(issues)} Issues, {iterations} Iterationen)")
+
+            # Save the repaired graph as a new version
+            _set_progress(task_id, "saving", "💾 Speichere reparierten Graphen als neue Version…")
+            new_version = await version_repo.create(
+                draft_id=draft_id, graph=repaired_graph, outline=outline,
+                created_by="review_repair_agent",
+                notes=f"Review+Repair: Score {score}/10, {len(issues)} Issues, {iterations} Iterationen",
+            )
+
+            _set_progress(task_id, "saving", "💾 Speichere Review-Bericht…")
+            await review_repo.create(
+                draft_id=draft_id, version_id=new_version.id,
+                score=score, issues=issues,
+                summary=result.get("summary"),
+            )
+
+            _set_progress(task_id, "saving", "💾 Aktualisiere Quality-Score…")
+            await session.execute(
+                sa_update(_SD)
+                .where(_SD.id == draft_id)
+                .values(quality_score=score)
+            )
+
+            if score < 7.0:
+                await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+            else:
+                await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+
+            await session.commit()
+
+            issue_count = len(issues)
+            event_log.emit_done("review", "critic_review",
+                f"Review+Repair completed: score {score}, {issue_count} issues, {iterations} iterations",
+                draft_id=draft_id,
+                detail={"score": score, "issues": issue_count, "iterations": iterations,
+                        "summary": result.get("summary", "")},
+            )
+
+            _set_progress(task_id, "done", json.dumps({
+                "ok": True, "score": score, "issues": issue_count, "iterations": iterations,
+            }, ensure_ascii=False))
+
+        except Exception as exc:
+            event_log.emit_error("review", "review", f"Review+Repair failed: {exc}", draft_id=draft_id)
+            _set_progress(task_id, "error", f"Fehler: {exc}")
+            import traceback
+            traceback.print_exc()
 
 
 @admin_app.post("/draft/{draft_id}/repair")
 async def run_repair(draft_id: str, session: AsyncSession = Depends(get_session)):
-    """Run repair pass."""
+    """Start combined review+repair in background, return task_id."""
+    from app.persistence.database import get_session_factory
+
     draft, version, draft_repo, version_repo = await _get_draft_and_version(session, draft_id)
     if version is None:
         event_log.emit_error("repair", "repair", f"No version found for draft {draft_id}", draft_id=draft_id)
         raise HTTPException(status_code=404, detail="No version found")
 
-    review_data = await _get_review_data(session, draft_id)
-    if not review_data:
-        event_log.emit_error("repair", "repair", f"No review found for draft {draft_id} — run review first", draft_id=draft_id)
-        raise HTTPException(status_code=400, detail="Run review first")
+    task_id = f"repair-{uuid4().hex[:8]}"
+    _task_progress[task_id] = {"phase": "starting", "message": "⏳ Starte Reparatur…", "task_id": task_id}
 
-    graph_data = version_repo.parse_graph(version)
-    outline = version_repo.parse_outline(version)
+    asyncio.create_task(_run_repair_background(
+        task_id, draft_id, version.id, draft.title,
+        get_session_factory(),
+    ))
 
-    event_log.emit_start("repair", "repair_pass", f"Running repair on '{draft.title}'", draft_id=draft_id, detail={"review_score": review_data.get("score")})
+    return {"task_id": task_id, "ok": True}
 
-    repair_agent = StoryRepairAgent()
-    result = await repair_agent.repair(graph_data, review_data)
-    new_graph = result.get("graph", graph_data)
 
-    await version_repo.create(
-        draft_id=draft_id,
-        graph=new_graph,
-        outline=outline,
-        created_by="repair_agent",
-        notes=result.get("summary", "Repair pass"),
-    )
-
+async def _run_repair_background(
+    task_id: str, draft_id: str,
+    version_id: str, draft_title: str,
+    session_factory,
+):
+    """Run combined review+repair in background (Repair button)."""
+    from app.persistence.authoring_repositories import StoryDraftRepository, StoryDraftVersionRepository
+    from app.services.story_review_repair_agent import ReviewRepairAgent
+    from sqlalchemy import update as sa_update
+    from app.models.story_draft import StoryDraft as _SD
     from app.models.enums import DraftStatus
-    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REPAIR)
-    await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
 
-    new_node_count = len(new_graph.get("nodes", {}))
-    event_log.emit_done("repair", "repair_pass", f"Repair completed: {new_node_count} nodes, {result.get('summary', '')[:80]}", draft_id=draft_id, detail={"node_count": new_node_count, "summary": result.get("summary", "")})
+    _set_progress(task_id, "loading", "📂 Lade Draft und Version…")
 
-    return RedirectResponse(url=f"/admin/draft/{draft_id}", status_code=303)
+    async with session_factory() as session:
+        try:
+            draft_repo = StoryDraftRepository(session)
+            version_repo = StoryDraftVersionRepository(session)
+
+            version = await version_repo.get_by_id(version_id)
+            if version is None:
+                _set_progress(task_id, "error", "Version nicht gefunden")
+                event_log.emit_error("repair", "repair", f"No version {version_id}", draft_id=draft_id)
+                return
+
+            event_log.emit_start("repair", "repair_pass",
+                f"Running repair on '{draft_title}'",
+                draft_id=draft_id, detail={"version_id": version_id},
+            )
+
+            _set_progress(task_id, "parsing", "📖 Lese Graph und Gliederung…")
+            graph_data = version_repo.parse_graph(version)
+            outline = version_repo.parse_outline(version) or {}
+
+            # ── Combined Review + Repair with Heartbeat ──
+            agent = ReviewRepairAgent()
+            result = await _run_with_heartbeat(
+                task_id, "repair_iteration",
+                [
+                    "🔧 Starte Reparatur + Review (Iteration 1)…",
+                    "📖 Analysiere Graph…",
+                    "🧠 Repariere Issues…",
+                    "✅ Prüffe Ergebnis…",
+                    "⏳ Noch am Arbeiten…",
+                ],
+                2.5,
+                agent.review_and_repair(outline, graph_data),
+            )
+
+            repaired_graph = result.get("repaired_graph", graph_data)
+            score = result.get("score", 0)
+            issues = result.get("issues", [])
+            iterations = result.get("iterations_used", 1)
+
+            _set_progress(task_id, "repair_done",
+                f"✅ Reparatur abgeschlossen (Score: {score}/10, {len(issues)} Issues, {iterations} Iterationen)")
+
+            _set_progress(task_id, "saving", "💾 Speichere neue Version…")
+            new_version = await version_repo.create(
+                draft_id=draft_id, graph=repaired_graph, outline=outline,
+                created_by="review_repair_agent",
+                notes=f"Reparatur: Score {score}/10, {iterations} Iterationen",
+            )
+
+            _set_progress(task_id, "saving", "💾 Aktualisiere Quality-Score…")
+            await session.execute(
+                sa_update(_SD)
+                .where(_SD.id == draft_id)
+                .values(quality_score=score)
+            )
+
+            if score < 7.0:
+                await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
+            else:
+                await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+
+            await session.commit()
+
+            event_log.emit_done("repair", "repair_pass",
+                f"Repair completed: score {score}, {len(issues)} issues, {iterations} iterations",
+                draft_id=draft_id,
+                detail={"score": score, "issues": len(issues), "iterations": iterations},
+            )
+
+            _set_progress(task_id, "done", json.dumps({
+                "ok": True, "score": score, "issues": len(issues), "iterations": iterations,
+            }, ensure_ascii=False))
+
+        except Exception as exc:
+            event_log.emit_error("repair", "repair", f"Repair failed: {exc}", draft_id=draft_id)
+            _set_progress(task_id, "error", f"Fehler: {exc}")
+            import traceback
+            traceback.print_exc()
 
 
-@admin_app.post("/draft/{draft_id}/fix-issue", response_class=JSONResponse)
+from uuid import uuid4
+
+# In-memory progress store for background tasks (fix, review, etc.)
+_task_progress: dict[str, dict] = {}
+
+
+@admin_app.post("/draft/{draft_id}/fix-issue")
 async def fix_issue(draft_id: str, request: Request, session: AsyncSession = Depends(get_session)):
-    """Apply a targeted FixThis repair for one review finding and re-review."""
-    draft, version, draft_repo, version_repo = await _get_draft_and_version(session, draft_id)
-    _ = draft_repo
-    if version is None:
-        event_log.emit_error("repair", "fix_issue", f"No version found for draft {draft_id}", draft_id=draft_id)
-        raise HTTPException(status_code=404, detail="No version found")
+    """Start a targeted FixThis repair in the background and return a task_id.
+    Frontend polls GET /draft/{draft_id}/fix-status/{task_id} via EventSource."""
+    from app.persistence.database import get_session_factory
 
     try:
         payload = await request.json()
@@ -477,19 +647,16 @@ async def fix_issue(draft_id: str, request: Request, session: AsyncSession = Dep
     except (TypeError, ValueError):
         raise HTTPException(status_code=422, detail="finding_id must be a one-based integer")
 
+    # Validate finding exists before spawning background task
     review_repo = StoryReviewReportRepository(session)
-
-    # Prefer the explicit report_id from the request (robust against stale
-    # latest-report lookups); fall back to reviews[-1] for backward compat.
     source_report = None
     if report_id:
         source_report = await review_repo.get_by_id(report_id)
         if source_report is not None and source_report.draft_id != draft_id:
-            source_report = None  # report belongs to a different draft
+            source_report = None
     if source_report is None:
         reviews = await review_repo.list_by_draft(draft_id)
         if not reviews:
-            event_log.emit_error("repair", "fix_issue", f"No review found for draft {draft_id}", draft_id=draft_id)
             raise HTTPException(status_code=400, detail="Run review first")
         source_report = reviews[-1]
 
@@ -497,94 +664,226 @@ async def fix_issue(draft_id: str, request: Request, session: AsyncSession = Dep
     if issue_index < 0 or issue_index >= len(source_issues):
         raise HTTPException(status_code=404, detail=f"Finding {finding_id} not found")
 
-    event_log.emit_start(
-        "repair",
-        "fix_issue",
-        f"FixThis finding #{issue_index + 1} on '{draft.title}'",
-        draft_id=draft_id,
-        detail={"report_id": source_report.id, "finding_id": issue_index + 1},
-    )
+    task_id = f"{draft_id}-{uuid4().hex[:8]}"
+    _task_progress[task_id] = {"phase": "starting", "message": "⏳ Starte...", "task_id": task_id}
 
-    requested_report = await review_repo.update_issue_status(source_report.id, issue_index, "fix_requested")
-    if requested_report is None:
-        raise HTTPException(status_code=404, detail="Review report not found")
-    requested_issues = review_repo.parse_issues(requested_report)
-    target_issue = requested_issues[issue_index]
+    # Spawn background task with a fresh DB session
+    asyncio.create_task(_run_fix_background(
+        task_id, draft_id, issue_index,
+        source_report.id, source_report.score, source_report.summary,
+        source_issues[issue_index],
+        get_session_factory(),
+    ))
 
-    filtered_review = {
-        "score": source_report.score,
-        "issues": [target_issue],
-        "summary": source_report.summary or "Targeted FixThis repair",
-    }
-    graph_data = version_repo.parse_graph(version)
-    outline = version_repo.parse_outline(version) or {}
+    return {"task_id": task_id, "ok": True}
 
+
+async def _run_with_heartbeat(
+    task_id: str, phase: str, messages: list[str],
+    interval: float, coro,
+):
+    """Run an async coroutine while sending periodic heartbeat progress updates.
+
+    Iterates through ``messages`` cyclically every ``interval`` seconds
+    during the wait, so the user sees changing status (e.g. "Analyziere Nodes…",
+    "Verbinde mit Story-Schema…", "Noch am Überlegen…") instead of a frozen
+    "Frage LLM…".
+    """
+    _set_progress(task_id, phase, messages[0])
+    msg_index = 1
+
+    async def heartbeat():
+        nonlocal msg_index
+        while True:
+            await asyncio.sleep(interval)
+            _set_progress(task_id, phase, messages[msg_index % len(messages)])
+            msg_index += 1
+
+    hb_task = asyncio.create_task(heartbeat())
     try:
-        repair_agent = StoryRepairAgent()
-        repair_result = await repair_agent.repair(graph_data, filtered_review)
-        new_graph = repair_result.get("graph", graph_data)
+        result = await coro
+        return result
+    finally:
+        hb_task.cancel()
+        try:
+            await hb_task
+        except asyncio.CancelledError:
+            pass
 
-        new_version = await version_repo.create(
-            draft_id=draft_id,
-            graph=new_graph,
-            outline=outline,
-            created_by="repair_agent",
-            notes=f"FixThis #{issue_index + 1}: {repair_result.get('summary', 'Targeted repair')}"[:500],
-        )
 
-        critic = StoryCriticAgent()
-        review_result = await critic.review(outline, new_graph)
-        new_report = await review_repo.create(
-            draft_id=draft_id,
-            version_id=new_version.id,
-            score=review_result["score"],
-            issues=review_result.get("issues", []),
-            summary=review_result.get("summary"),
-        )
+async def _run_fix_background(
+    task_id: str, draft_id: str,
+    issue_index: int, source_report_id: str,
+    source_score: float, source_summary: str | None,
+    target_issue: dict,
+    session_factory,
+):
+    """Run targeted FixThis repair using combined review+repair agent."""
+    from app.persistence.authoring_repositories import StoryDraftRepository, StoryDraftVersionRepository, StoryReviewReportRepository
+    from app.services.story_review_repair_agent import ReviewRepairAgent
+    from sqlalchemy import update as sa_update
+    from app.models.story_draft import StoryDraft as _SD
 
-        await review_repo.update_issue_status(source_report.id, issue_index, "fixed")
+    _set_progress(task_id, "loading", "📂 Lade Draft und Version...")
 
-        from sqlalchemy import update as sa_update
-        from app.models.story_draft import StoryDraft as _SD
+    async with session_factory() as session:
+        try:
+            draft_repo = StoryDraftRepository(session)
+            version_repo = StoryDraftVersionRepository(session)
+            review_repo = StoryReviewReportRepository(session)
 
-        await session.execute(
-            sa_update(_SD)
-            .where(_SD.id == draft_id)
-            .values(quality_score=review_result["score"])
-        )
-        await session.commit()
-    except Exception as exc:
-        event_log.emit_error("repair", "fix_issue", f"FixThis failed: {exc}", draft_id=draft_id)
-        raise
+            draft = await draft_repo.get_by_id(draft_id)
+            if draft is None:
+                _set_progress(task_id, "error", f"Draft {draft_id} nicht gefunden")
+                event_log.emit_error("repair", "fix_issue", f"Draft not found {draft_id}", draft_id=draft_id)
+                return
+            version = await version_repo.latest_for_draft(draft_id)
+            if version is None:
+                _set_progress(task_id, "error", "Keine Version gefunden")
+                event_log.emit_error("repair", "fix_issue", f"No version for draft {draft_id}", draft_id=draft_id)
+                return
 
-    new_issues = review_result.get("issues", [])
-    event_log.emit_done(
-        "repair",
-        "fix_issue",
-        f"FixThis #{issue_index + 1} complete; re-review score {review_result['score']} with {len(new_issues)} issues",
-        draft_id=draft_id,
-        detail={
-            "source_report_id": source_report.id,
-            "new_report_id": new_report.id,
-            "new_version_id": new_version.id,
-            "finding_id": issue_index + 1,
-            "score": review_result["score"],
-            "issues": len(new_issues),
+            event_log.emit_start("repair", "fix_issue",
+                f"FixThis finding #{issue_index + 1} on '{draft.title}'",
+                draft_id=draft_id,
+                detail={"report_id": source_report_id, "finding_id": issue_index + 1},
+            )
+
+            _set_progress(task_id, "loading", "📋 Markiere Finding als fix_requested...")
+            await review_repo.update_issue_status(source_report_id, issue_index, "fix_requested")
+
+            _set_progress(task_id, "parsing", "📖 Lese Graph und Gliederung…")
+            graph_data = version_repo.parse_graph(version)
+            outline = version_repo.parse_outline(version) or {}
+
+            # Inject the specific issue into the outline so the combined
+            # agent knows what to focus on
+            focused_outline = dict(outline)
+            focused_outline["_fix_this_issue"] = {
+                "finding_id": issue_index + 1,
+                "score": source_score,
+                "issue": target_issue,
+            }
+
+            # ── Combined Review + Repair (targeted) with Heartbeat ──
+            agent = ReviewRepairAgent()
+            result = await _run_with_heartbeat(
+                task_id, "fix_repair",
+                [
+                    f"🔧 FixThis #{issue_index + 1}: Repariere Issue…",
+                    "📖 Analysiere betroffenen Node…",
+                    "🧠 Wende Reparatur an…",
+                    "✅ Prüffe Korrektur…",
+                    "⏳ Noch am Arbeiten…",
+                ],
+                2.5,
+                agent.review_and_repair(focused_outline, graph_data),
+            )
+
+            repaired_graph = result.get("repaired_graph", graph_data)
+            score = result.get("score", 0)
+            issues = result.get("issues", [])
+            iterations = result.get("iterations_used", 1)
+
+            _set_progress(task_id, "fix_done",
+                f"✅ FixThis abgeschlossen (Score: {score}/10, {len(issues)} Issues, {iterations} Iterationen)")
+
+            _set_progress(task_id, "saving", "💾 Speichere neue Version…")
+            new_version = await version_repo.create(
+                draft_id=draft_id, graph=repaired_graph, outline=outline,
+                created_by="review_repair_agent",
+                notes=f"FixThis #{issue_index + 1}: Score {score}/10, {iterations} Iterationen",
+            )
+            _set_progress(task_id, "saving", "💾 Neue Version v{} gespeichert".format(
+                new_version.version_number if hasattr(new_version, 'version_number') else '?'))
+
+            _set_progress(task_id, "saving", "💾 Speichere Re-Review-Bericht…")
+            new_report = await review_repo.create(
+                draft_id=draft_id, version_id=new_version.id,
+                score=score, issues=issues,
+                summary=result.get("summary"),
+            )
+
+            await review_repo.update_issue_status(source_report_id, issue_index, "fixed")
+
+            await session.execute(
+                sa_update(_SD)
+                .where(_SD.id == draft_id)
+                .values(quality_score=score)
+            )
+            await session.commit()
+
+            event_log.emit_done("repair", "fix_issue",
+                f"FixThis #{issue_index + 1} complete; score {score}, {len(issues)} issues, {iterations} iterations",
+                draft_id=draft_id,
+                detail={
+                    "source_report_id": source_report_id,
+                    "new_report_id": new_report.id,
+                    "new_version_id": new_version.id,
+                    "finding_id": issue_index + 1,
+                    "score": score,
+                    "issues": len(issues),
+                    "iterations": iterations,
+                },
+            )
+
+            _set_progress(task_id, "done", json.dumps({
+                "ok": True, "finding_id": issue_index + 1,
+                "fix_status": "fixed",
+                "version_id": new_version.id,
+                "report_id": new_report.id,
+                "review": {
+                    "score": score,
+                    "issues": issues,
+                    "summary": result.get("summary"),
+                },
+            }, ensure_ascii=False))
+
+        except Exception as exc:
+            event_log.emit_error("repair", "fix_issue", f"FixThis failed: {exc}", draft_id=draft_id)
+            _set_progress(task_id, "error", f"Fehler: {exc}")
+            import traceback
+            traceback.print_exc()
+
+
+def _set_progress(task_id: str, phase: str, message: str):
+    """Update progress for a background FixThis task."""
+    _task_progress[task_id] = {"phase": phase, "message": message, "done": phase in ("done", "error"), "task_id": task_id}
+
+
+@admin_app.get("/draft/{draft_id}/task-status/{task_id}")
+async def task_status(draft_id: str, task_id: str):
+    """SSE endpoint: streams progress updates for any background task (fix, review, etc.)."""
+    from starlette.responses import StreamingResponse
+
+    async def event_stream():
+        # Send initial state immediately
+        task = _task_progress.get(task_id)
+        if task:
+            yield f"data: {json.dumps(task, ensure_ascii=False)}\n\n"
+
+        # Poll for updates until done
+        while True:
+            task = _task_progress.get(task_id)
+            if not task:
+                yield f"data: {json.dumps({'phase': 'error', 'message': 'Task unbekannt', 'done': True})}\n\n"
+                return
+            if task.get("done"):
+                # Send one final update and close
+                yield f"data: {json.dumps(task, ensure_ascii=False)}\n\n"
+                return
+            await asyncio.sleep(0.5)
+            yield f"data: {json.dumps(task, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
-
-    return JSONResponse(content={
-        "ok": True,
-        "finding_id": issue_index + 1,
-        "fix_status": "fixed",
-        "version_id": new_version.id,
-        "report_id": new_report.id,
-        "review": {
-            "score": review_result["score"],
-            "issues": new_issues,
-            "summary": review_result.get("summary"),
-        },
-    })
 
 
 @admin_app.post("/draft/{draft_id}/validate")

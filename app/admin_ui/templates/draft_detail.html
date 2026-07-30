@@ -653,10 +653,18 @@
                 btn.innerHTML = '<span class="elb-spinner"></span> Fixing…';
                 btn.dataset.originalText = '🔧 FixThis';
 
-                if (typeof showToast === 'function') {
-                    showToast('🔧 FixThis für Finding #' + findingId + ' — Reparatur und Re-Review laufen…', 'info');
+                // Create or reuse a progress indicator below the button
+                const progressId = 'fixthis-progress-' + findingId;
+                let progressEl = document.getElementById(progressId);
+                if (!progressEl) {
+                    progressEl = document.createElement('div');
+                    progressEl.id = progressId;
+                    progressEl.style.cssText = 'font-size:0.75rem;color:#93c5fd;margin-top:0.25rem;line-height:1.5;';
+                    btn.parentNode.insertBefore(progressEl, btn.nextSibling);
                 }
+                progressEl.textContent = '⏳ Starte...';
 
+                // Step 1: POST to start the background task, get task_id
                 fetch('/admin/draft/' + draftId + '/fix-issue', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -671,18 +679,50 @@
                     return r.json();
                 })
                 .then(function(data) {
-                    window.resolveFixThis(findingId);
-                    if (typeof showToast === 'function') {
-                        const issueCount = data.review && data.review.issues ? data.review.issues.length : 0;
-                        showToast('✅ FixThis abgeschlossen — Re-Review: ' + issueCount + ' offene Findings', 'success');
-                    }
-                    setTimeout(function() { window.location.reload(); }, 700);
+                    if (!data.task_id) throw new Error('Keine task_id erhalten');
+                    // Step 2: Connect EventSource to stream progress
+                    var taskId = data.task_id;
+                    var es = new EventSource('/admin/draft/' + draftId + '/task-status/' + taskId);
+                    es.onmessage = function(evt) {
+                        try {
+                            var task = JSON.parse(evt.data);
+                            if (task.phase === 'done') {
+                                var payload = JSON.parse(task.message);
+                                window.resolveFixThis(findingId);
+                                if (typeof showToast === 'function') {
+                                    var ic = payload.review && payload.review.issues ? payload.review.issues.length : 0;
+                                    showToast('✅ FixThis abgeschlossen — Re-Review: ' + ic + ' offene Findings', 'success');
+                                }
+                                progressEl.textContent = '✅ Fertig – Seite wird neu geladen...';
+                                es.close();
+                                setTimeout(function() { window.location.reload(); }, 700);
+                            } else if (task.phase === 'error') {
+                                window.resolveFixThis(findingId);
+                                if (typeof showToast === 'function') {
+                                    showToast('❌ FixThis fehlgeschlagen: ' + task.message, 'error');
+                                }
+                                progressEl.textContent = '❌ ' + task.message;
+                                es.close();
+                            } else {
+                                progressEl.textContent = task.message || task.phase;
+                            }
+                        } catch(e) { /* skip malformed events */ }
+                    };
+                    es.onerror = function() {
+                        // EventSource auto-reconnects — only act if really done
+                        if (es.readyState === EventSource.CLOSED) {
+                            window.resolveFixThis(findingId);
+                            progressEl.textContent = '⚠️ Verbindung getrennt – Seite wird neu geladen...';
+                            setTimeout(function() { window.location.reload(); }, 1000);
+                        }
+                    };
                 })
                 .catch(function(err) {
                     window.resolveFixThis(findingId);
                     if (typeof showToast === 'function') {
                         showToast('❌ FixThis fehlgeschlagen: ' + err.message, 'error');
                     }
+                    progressEl.textContent = '❌ ' + err.message;
                     console.error('[FixThis] Failed:', err);
                 });
             });
@@ -709,6 +749,66 @@
                 form.addEventListener('submit', function(e) {
                     e.preventDefault();
                     if (btn.disabled) return;
+
+                    // ── Special handling for review: background task + SSE ──
+                    if (action === 'review' || action === 'repair') {
+                        var label = action === 'review' ? 'Review' : 'Reparatur';
+                        var btnLabel = action === 'review' ? '🔍 Review' : '🔧 Repair';
+                        btn.disabled = true;
+                        btn.style.opacity = '0.6';
+                        btn.innerHTML = '⏳ ' + label + '...';
+
+                        // Create progress indicator below the button
+                        var progId = 'action-progress-' + action;
+                        var progEl = document.getElementById(progId);
+                        if (!progEl) {
+                            progEl = document.createElement('div');
+                            progEl.id = progId;
+                            progEl.style.cssText = 'font-size:0.75rem;color:#93c5fd;margin-top:0.25rem;line-height:1.5;';
+                            form.parentNode.insertBefore(progEl, form.nextSibling);
+                        }
+                        progEl.textContent = '⏳ Starte ' + label + '...';
+
+                        fetch(form.action, { method: 'POST' })
+                        .then(function(r) {
+                            if (!r.ok) return r.json().catch(function(){return{};}).then(function(d){throw new Error(d.detail||'HTTP '+r.status);});
+                            return r.json();
+                        })
+                        .then(function(data) {
+                            if (!data.task_id) throw new Error('Keine task_id');
+                            var es = new EventSource('/admin/draft/' + draftId + '/task-status/' + data.task_id);
+                            es.onmessage = function(evt) {
+                                try {
+                                    var task = JSON.parse(evt.data);
+                                    if (task.phase === 'done') {
+                                        progEl.textContent = '✅ Fertig – Seite wird neu geladen...';
+                                        es.close();
+                                        if (typeof showToast === 'function') showToast('✅ ' + label + ' abgeschlossen', 'success');
+                                        setTimeout(function(){window.location.reload();}, 700);
+                                    } else if (task.phase === 'error') {
+                                        progEl.textContent = '❌ ' + task.message;
+                                        if (typeof showToast === 'function') showToast('❌ ' + label + ' fehlgeschlagen: ' + task.message, 'error');
+                                        btn.disabled = false; btn.style.opacity = ''; btn.textContent = btnLabel;
+                                        es.close();
+                                    } else {
+                                        progEl.textContent = task.message || task.phase;
+                                    }
+                                } catch(e){}
+                            };
+                            es.onerror = function() {
+                                if (es.readyState === EventSource.CLOSED) {
+                                    progEl.textContent = '⚠️ Verbindung getrennt – Seite wird neu geladen...';
+                                    setTimeout(function(){window.location.reload();}, 1000);
+                                }
+                            };
+                        })
+                        .catch(function(err) {
+                            if (typeof showToast === 'function') showToast('❌ ' + label + ' fehlgeschlagen: ' + err.message, 'error');
+                            progEl.textContent = '❌ ' + err.message;
+                            btn.disabled = false; btn.style.opacity = ''; btn.textContent = btnLabel;
+                        });
+                        return;
+                    }
 
                     // Set loading state
                     const originalText = btn.textContent;
@@ -1165,11 +1265,32 @@
             viewport.classList.remove('dragging');
         });
 
-        // Scroll-to-zoom
+        // Scroll-to-zoom — with mouse-position anchoring and dampened sensitivity
         viewport.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const factor = e.deltaY < 0 ? 1.1 : 0.9;
-            zoomGraph(factor);
+
+            // Dampened zoom factor: smaller steps per tick, capped range
+            const delta = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY) / 200, 1.0);
+            const factor = delta < 0 ? 1 / (1 - delta) : (1 + delta);
+
+            const newZoom = Math.min(Math.max(zoom * factor, 0.1), 5);
+
+            // Mouse position relative to viewport
+            const rect = viewport.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // World-space point under the mouse before zoom
+            const worldX = (mouseX - panX) / zoom;
+            const worldY = (mouseY - panY) / zoom;
+
+            zoom = newZoom;
+
+            // Adjust pan so the same world point stays under the mouse
+            panX = mouseX - worldX * zoom;
+            panY = mouseY - worldY * zoom;
+
+            updateTransform();
         }, { passive: false });
 
         // ── Node detail panel ──

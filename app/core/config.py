@@ -49,10 +49,10 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = "2024-02-15-preview"
 
     # LLM operational parameters
-    llm_max_tokens: int = 2048
-    llm_max_input_tokens: int = 6000
+    llm_max_tokens: int = 65000
+    llm_max_input_tokens: int = 128000
     llm_temperature: float = 0.7
-    llm_timeout_seconds: float = 30.0
+    llm_timeout_seconds: float = 60.0
     llm_max_retries: int = 2
     llm_retry_backoff_base: float = 1.0
     llm_daily_budget_usd: float = 0.0

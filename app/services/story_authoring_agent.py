@@ -355,6 +355,27 @@ class StoryAuthoringAgent:
                     attempt + 1,
                 )
 
+            # Validate node texts for internal markers (node IDs, JSON fields,
+            # (Teil ...) etc.) and retry if found.
+            marker_violations = _find_marker_violations(result)
+            if marker_violations and attempt < max_retries:
+                logger.warning(
+                    "Graph has %d internal marker violations (attempt %d/%d): %s — retrying",
+                    len(marker_violations),
+                    attempt + 1,
+                    max_retries + 1,
+                    [(v["node_id"], v["pattern_name"], v["matched_text"]) for v in marker_violations],
+                )
+                continue
+
+            if marker_violations:
+                logger.warning(
+                    "Graph still has %d internal marker violations after %d attempts — accepting best effort: %s",
+                    len(marker_violations),
+                    attempt + 1,
+                    [(v["node_id"], v["pattern_name"]) for v in marker_violations],
+                )
+
             break
 
         # Determine start node
@@ -392,3 +413,54 @@ class StoryAuthoringAgent:
             f"{json.dumps(outline, ensure_ascii=False, indent=2)}\n\n"
             "Generate the full directed story graph now."
         )
+
+
+# ── Module-level helper ──────────────────────────────────────────
+
+
+def _find_marker_violations(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    """Scan all node texts in *graph* for internal marker patterns.
+
+    Returns a list of violation dicts with keys ``node_id``,
+    ``pattern_name``, ``matched_text``, and ``offset``.
+
+    This function is non-destructive: if the validator raises an
+    unexpected error, it logs a warning and returns an empty list
+    so the pipeline degrades gracefully.
+    """
+    from app.story.story_text_validator import validate_story_text_markers
+
+    violations: list[dict[str, Any]] = []
+    nodes = graph.get("nodes", {})
+    if not isinstance(nodes, dict):
+        return violations
+
+    for node_id, node_data in nodes.items():
+        if not isinstance(node_data, dict):
+            continue
+        # Check both scene_text and scene_goal for markers
+        for field_name in ("scene_text", "scene_goal"):
+            text = node_data.get(field_name, "")
+            if not text:
+                continue
+            try:
+                result = validate_story_text_markers(text)
+            except Exception as exc:
+                logger.warning(
+                    "Marker validation error on node %s field '%s': %s — skipping",
+                    node_id,
+                    field_name,
+                    exc,
+                )
+                continue
+            for m in result.matches:
+                violations.append(
+                    {
+                        "node_id": node_id,
+                        "field": field_name,
+                        "pattern_name": m.pattern_name,
+                        "matched_text": m.matched_text,
+                        "offset": m.offset,
+                    }
+                )
+    return violations

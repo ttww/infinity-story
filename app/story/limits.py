@@ -216,12 +216,12 @@ def extend_node_text(text: str, min_sentences: int, node_title: str = "") -> str
         # No well-formed sentences at all — add a full set
         parts = [f"{title_ref} beginnt."]
         for i in range(needed - 1):
-            parts.append(f"Die Handlung entwickelt sich weiter (Teil {i+2}).")
+            parts.append(f"Die Handlung nimmt weiter ihren Lauf.")
         return " ".join(parts)
 
     parts = list(sents)
     for i in range(needed):
-        parts.append(f"Zusätzliche Details ergänzen die Szene (Teil {i+1}).")
+        parts.append(f"Weitere Details ergänzen den Verlauf der Szene.")
     return " ".join(parts)
 
 

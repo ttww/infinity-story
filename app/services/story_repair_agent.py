@@ -2,6 +2,8 @@
 
 Improves a story graph based on a critic review report.
 Uses the LLM service abstraction so it works with mock or real providers.
+Added structured validation + retry to prevent broken graphs from
+truncated LLM output from being saved.
 """
 
 from __future__ import annotations
@@ -12,17 +14,22 @@ import logging
 from typing import Any
 
 from app.core.config import get_settings
-from app.services.llm_service import LLMService, get_llm_service
+from app.services.llm_service import LLMService, get_llm_service, LLMResponseError
 from app.story.prompts import REPAIR_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 
+class StoryRepairError(Exception):
+    """Raised when repair fails after all retries."""
+
+
 class StoryRepairAgent:
     """Repairs graph issues identified by the critic."""
 
-    def __init__(self, llm: LLMService | None = None) -> None:
+    def __init__(self, llm: LLMService | None = None, max_retries: int = 2) -> None:
         self._llm = llm
+        self._max_retries = max_retries
 
     @property
     def llm(self) -> LLMService:
@@ -36,6 +43,11 @@ class StoryRepairAgent:
         review_report: dict[str, Any],
     ) -> dict[str, Any]:
         """Return improved graph with documented changes.
+
+        Retries up to ``self._max_retries`` times on JSON parse failure
+        or invalid graph structure.  If all retries are exhausted, the
+        **original graph** is returned unchanged rather than saving a
+        truncated / broken graph to the database.
 
         Returns:
             ``{"graph": {...}, "changes": [...], "summary": str}``
@@ -56,25 +68,109 @@ class StoryRepairAgent:
         needed_tokens = min(max(est_input_tokens, 4096), 16384)
         needed_input_tokens = min(max(est_input_tokens * 3, 8192), 65536)
 
-        try:
-            result = await self.llm.generate_json(
-                system_prompt=REPAIR_SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                max_tokens=needed_tokens,
-                max_input_tokens=needed_input_tokens,
-            )
-        except Exception as exc:
-            logger.error("Repair generation failed: %s", exc)
-            raise
+        last_error: str | None = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                result = await self.llm.generate_json(
+                    system_prompt=REPAIR_SYSTEM_PROMPT,
+                    user_prompt=user_prompt,
+                    max_tokens=needed_tokens,
+                    max_input_tokens=needed_input_tokens,
+                )
 
-        # Apply patches to build the repaired graph
-        repaired_graph = self._apply_patches(graph, result)
+                # Apply patches to build the repaired graph
+                repaired_graph = self._apply_patches(graph, result)
 
+                # Validate structural integrity before accepting
+                if self._validate_graph_structure(repaired_graph):
+                    return {
+                        "graph": repaired_graph,
+                        "changes": result.get("changes", []),
+                        "summary": result.get("summary", ""),
+                    }
+
+                last_error = "Graph validation failed (broken structure after patching)"
+                logger.warning(
+                    "Repair attempt %d/%d: %s",
+                    attempt + 1, self._max_retries + 1, last_error,
+                )
+
+            except (LLMResponseError, json.JSONDecodeError, ValueError) as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "Repair generation failed (attempt %d/%d): %s",
+                    attempt + 1, self._max_retries + 1, exc,
+                )
+
+        # All retries exhausted — return original graph intact
+        logger.error(
+            "Repair failed after %d attempts. Returning original graph. "
+            "Last error: %s",
+            self._max_retries + 1, last_error,
+        )
         return {
-            "graph": repaired_graph,
-            "changes": result.get("changes", []),
-            "summary": result.get("summary", ""),
+            "graph": graph,
+            "changes": [],
+            "summary": f"Reparatur fehlgeschlagen nach {self._max_retries + 1} Versuchen "
+                        f"(letzter Fehler: {last_error}). Original-Graph unverändert.",
         }
+
+    @staticmethod
+    def _validate_graph_structure(graph: dict[str, Any]) -> bool:
+        """Check basic structural integrity of a story graph.
+
+        Returns ``True`` if the graph is structurally sound:
+          * ``nodes`` is a non-empty dict
+          * ``start_node_id`` references a node that exists
+          * every choice's ``next_node_id`` points to an existing node
+          * node IDs are strings, nodes are dicts
+        """
+        nodes = graph.get("nodes")
+        if not isinstance(nodes, dict):
+            logger.warning("Graph validation: 'nodes' is not a dict")
+            return False
+        if len(nodes) == 0:
+            logger.warning("Graph validation: 'nodes' is empty")
+            return False
+
+        # Validate each node
+        for nid, node in nodes.items():
+            if not isinstance(nid, str):
+                logger.warning("Graph validation: node ID %r is not a string", nid)
+                return False
+            if not isinstance(node, dict):
+                logger.warning("Graph validation: node %r is not a dict", nid)
+                return False
+
+        # Validate start_node_id
+        start_id = graph.get("start_node_id")
+        if start_id is None:
+            logger.warning("Graph validation: 'start_node_id' is missing")
+            return False
+        if start_id not in nodes:
+            logger.warning(
+                "Graph validation: start_node_id %r not in nodes", start_id
+            )
+            return False
+
+        # Validate choice references
+        for nid, node in nodes.items():
+            choices = node.get("choices") if isinstance(node, dict) else None
+            if not isinstance(choices, list):
+                continue
+            for ci, choice in enumerate(choices):
+                if not isinstance(choice, dict):
+                    continue
+                next_id = choice.get("next_node_id")
+                if next_id is not None and next_id not in nodes:
+                    logger.warning(
+                        "Graph validation: choice %d of node %r "
+                        "references non-existent node %r",
+                        ci, nid, next_id,
+                    )
+                    return False
+
+        return True
 
     @staticmethod
     def _apply_patches(
