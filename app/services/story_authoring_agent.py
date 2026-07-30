@@ -408,9 +408,12 @@ class StoryAuthoringAgent:
 
     @staticmethod
     def _build_graph_user_prompt(outline: dict[str, Any]) -> str:
+        protagonist = outline.get("protagonist_name", "") or outline.get("brief", {}).get("protagonist_name", "")
+        protagonist_line = f"\n\nIMPORTANT: The protagonist's name is \"{protagonist}\". Use this name in ALL scene_goal texts." if protagonist else ""
         return (
             "Outline:\n"
-            f"{json.dumps(outline, ensure_ascii=False, indent=2)}\n\n"
+            f"{json.dumps(outline, ensure_ascii=False, indent=2)}"
+            f"{protagonist_line}\n\n"
             "Generate the full directed story graph now."
         )
 

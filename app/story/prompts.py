@@ -242,6 +242,12 @@ Each node must contain:
 - id, title, type, act, scene_goal, location, characters, reveals, choices, quality_notes
 - is_start (true for the start node), is_end (true for ending nodes)
 
+NARRATIVE VOICE — CRITICAL:
+- The scene_goal text must use the protagonist's name (provided in the outline).
+- NEVER use "Der Spieler", "Der Nutzer", "the user", or "the player".
+- Example scene_goal: "Jon Dow entdeckt ein Signal..." NOT "Der Spieler entdeckt..."
+- This is a story with named characters — write from their perspective.
+
 Choice counts are flexible but must respect the configured bounds:
 - End nodes: choices = [] (empty list), is_end = true
 - Transitional/cinematic nodes: choices = [] with next_node_id set (auto-advance)
@@ -301,6 +307,9 @@ graph against ALL of the following criteria:
     and genre?
 13. Safety — Are there safety issues (harmful content, excessive \
     violence, inappropriate themes for the target age group)?
+14. Narrative voice — Does every scene_goal use the protagonist's name \
+    instead of "Der Spieler", "Der Nutzer", "the user", or "the player"? \
+    Flag as "high" severity if found.
 
 Scoring:
 - Score from 0.0 to 10.0 (one decimal place).
@@ -564,6 +573,9 @@ against ALL of the following criteria:
 11. Linearity — Are there sections that are too linear?
 12. Audience fit — Does the story fit the declared target audience?
 13. Safety — Are there safety issues for the target age group?
+14. Narrative voice — Does every scene_goal use the protagonist's name \
+    instead of "Der Spieler", "Der Nutzer", "the user", or "the player"? \
+    Flag as "high" severity if found.
 
 Scoring:
 - Score from 0.0 to 10.0. 7.0+ is publishable quality.
