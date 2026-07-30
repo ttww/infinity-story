@@ -1266,6 +1266,30 @@ class OllamaLLMService(LLMService):
 
 # ── Factory ──────────────────────────────────────────────────────
 
+
+def _resolve_openai_key(settings) -> str:
+    """Resolve the OpenAI API key from multiple sources."""
+    from pathlib import Path
+    env_key = os.environ.get("OPENAI_API_KEY", "")
+    if env_key and env_key != settings.openai_api_key:
+        return env_key
+    cfg_key = settings.openai_api_key
+    if cfg_key and cfg_key.startswith("sk-"):
+        return cfg_key
+    profile_env = Path.home() / "profiles" / "infinity-story" / ".env"
+    if profile_env.exists():
+        try:
+            for line in profile_env.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("OPENAI_API_KEY="):
+                    val = line.split("=", 1)[1].strip().strip("\"")
+                    if val and val.startswith("sk-"):
+                        return val
+        except Exception:
+            pass
+    return ""
+
+
 def get_llm_service(
     settings: Settings | None = None,
     use_case: str | None = None,
@@ -1294,17 +1318,30 @@ def get_llm_service(
         model_override = assignment.model
         provider_override = assignment.provider
 
-    # Resolve provider base URL
-    if provider_override == "openai" or (not provider_override and s.llm_provider == "openai"):
-        # OpenAI direct — use Hermes-configured key
-        api_key = os.environ.get("OPENAI_API_KEY", s.openai_api_key)
+    # Resolve provider
+    raw_provider = provider_override or s.llm_provider
+
+    # OpenRouter is OpenAI-compatible — treat as "openai" provider class
+    if raw_provider == "openrouter":
+        provider = "openai"
+    else:
+        provider = raw_provider
+
+    # Resolve API key and base URL
+    if raw_provider == "openai":
+        # OpenAI direct — try Hermes profile env first, then system env, then .env
+        api_key = _resolve_openai_key(s)
         base_url = "https://api.openai.com/v1"
     else:
         # OpenRouter (default)
         api_key = s.openai_api_key
         base_url = s.openai_base_url or "https://openrouter.ai/api/v1"
 
-    provider = provider_override or s.llm_provider
+    # API key check
+    if provider == "openai" and not api_key:
+        raise LLMError("OpenAI/OpenRouter API key not configured. "
+                        "Set OPENAI_API_KEY in .env (OpenRouter) or "
+                        "export OPENAI_API_KEY=sk-... in your shell (OpenAI).")
 
     if provider == "mock":
         svc = MockLLMService(s)

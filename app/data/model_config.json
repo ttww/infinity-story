@@ -1,0 +1,8 @@
+{
+  "assignments": {
+    "scene_generation": {
+      "provider": "openai",
+      "model": "gpt-5.x"
+    }
+  }
+}
