@@ -1561,6 +1561,92 @@ async def logs_page(request: Request):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Model Configuration (per-use-case model selection)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@admin_app.get("/config/models", response_class=HTMLResponse)
+async def model_config_page(request: Request):
+    """Model configuration page — per-use-case model selection."""
+    from app.services.model_config import (
+        load_config, USE_CASES,
+        KNOWN_OPENROUTER_MODELS, KNOWN_OPENAI_MODELS,
+    )
+    config = load_config()
+    return templates.TemplateResponse(request, "model_config.html", {
+        "config": config,
+        "use_cases": USE_CASES,
+        "openrouter_models": KNOWN_OPENROUTER_MODELS,
+        "openai_models": KNOWN_OPENAI_MODELS,
+        "usage_stats": _get_usage_stats(),
+    })
+
+
+@admin_app.post("/config/models", response_class=JSONResponse)
+async def save_model_config(request: Request):
+    """Save the model configuration."""
+    from app.services.model_config import ModelConfig, save_config, load_config
+
+    body = await request.json()
+    try:
+        config = ModelConfig(**body)
+        save_config(config)
+        return JSONResponse(content={"ok": True})
+    except Exception as exc:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": str(exc)},
+        )
+
+
+@admin_app.post("/config/models/test", response_class=JSONResponse)
+async def test_model_connection(request: Request):
+    """Test a model connection by sending a simple prompt."""
+    body = await request.json()
+    use_case = body.get("use_case", "review")
+    test_prompt = body.get("prompt", "Antworte mit 'OK'.")
+
+    try:
+        from app.services.llm_service import get_llm_service
+        llm = get_llm_service(use_case=use_case)
+        result = await llm.generate_text(
+            system_prompt="Du bist ein Test-Assistent.",
+            user_prompt=test_prompt,
+            max_tokens=50,
+        )
+        return JSONResponse(content={
+            "ok": True,
+            "response": result[:200],
+            "model": getattr(llm, "_model", "?"),
+            "provider": llm.provider_name,
+            "use_case": use_case,
+        })
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(exc)},
+        )
+
+
+def _get_usage_stats() -> dict:
+    """Return aggregated token usage per use case."""
+    from app.services.llm_service import get_llm_service
+    from app.core.config import get_settings
+    try:
+        llm = get_llm_service()
+        stats = llm.usage
+        # Also collect from all agents that have been instantiated
+        return {
+            "total_calls": stats.total_calls,
+            "total_input_tokens": stats.total_input_tokens,
+            "total_output_tokens": stats.total_output_tokens,
+            "total_cost_usd": round(stats.total_cost_usd, 6),
+        }
+    except Exception:
+        return {"total_calls": 0, "total_input_tokens": 0, "total_output_tokens": 0, "total_cost_usd": 0.0}
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Incremental Graph Editing (Spec §8.1.6 — inkrementelle Verbesserung)
 # ═══════════════════════════════════════════════════════════════════════
 

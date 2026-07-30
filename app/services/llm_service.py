@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -108,6 +109,10 @@ class LLMService(ABC):
     """Abstract LLM provider interface (Spec §5.6)."""
 
     provider_name: str
+    # Per-use-case tracking
+    use_case: str | None = None
+    # API key override (for multi-provider support)
+    _api_key: str | None = None
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -985,8 +990,9 @@ class OpenAICompatibleProvider(LLMService):
     _model: str
 
     def _headers(self) -> dict[str, str]:
+        key = self._api_key or self.settings.openai_api_key
         return {
-            "Authorization": f"Bearer {self.settings.openai_api_key}",
+            "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
         }
 
@@ -1260,29 +1266,65 @@ class OllamaLLMService(LLMService):
 
 # ── Factory ──────────────────────────────────────────────────────
 
-def get_llm_service(settings: Settings | None = None) -> LLMService:
+def get_llm_service(
+    settings: Settings | None = None,
+    use_case: str | None = None,
+) -> LLMService:
     """Factory: return the configured LLM provider (Spec §5.6).
+
+    When *use_case* is provided, the model config is consulted for
+    a per-use-case model assignment.  This allows different models
+    for review, repair, scene generation, etc.
 
     Reads ``llm_provider`` from settings. Supported values:
     ``mock``, ``openai``, ``azure_openai``, ``ollama``.
     """
+    from app.services.model_config import load_config
+
     s = settings or get_settings()
-    provider = s.llm_provider
+    config = load_config()
+
+    # Determine which model to use
+    model_override: str | None = None
+    provider_override: str | None = None
+    base_url_override: str | None = None
+
+    if use_case and use_case in config.assignments:
+        assignment = config.assignments[use_case]
+        model_override = assignment.model
+        provider_override = assignment.provider
+
+    # Resolve provider base URL
+    if provider_override == "openai" or (not provider_override and s.llm_provider == "openai"):
+        # OpenAI direct — use Hermes-configured key
+        api_key = os.environ.get("OPENAI_API_KEY", s.openai_api_key)
+        base_url = "https://api.openai.com/v1"
+    else:
+        # OpenRouter (default)
+        api_key = s.openai_api_key
+        base_url = s.openai_base_url or "https://openrouter.ai/api/v1"
+
+    provider = provider_override or s.llm_provider
+
     if provider == "mock":
-        return MockLLMService(s)
+        svc = MockLLMService(s)
     elif provider == "openai":
-        if not s.openai_api_key:
-            raise LLMError("OpenAI provider requires OPENAI_API_KEY to be set")
-        return OpenAILLMService(s)
+        if not api_key:
+            raise LLMError("OpenAI/OpenRouter API key not configured")
+        svc = OpenAILLMService(s)
+        svc._api_key = api_key
+        svc._base_url = base_url
+        svc._model = model_override or s.openai_model
     elif provider == "azure_openai":
-        if not s.azure_openai_api_key:
-            raise LLMError("Azure OpenAI provider requires AZURE_OPENAI_API_KEY to be set")
-        if not s.azure_openai_endpoint:
-            raise LLMError("Azure OpenAI provider requires AZURE_OPENAI_ENDPOINT to be set")
-        if not s.azure_openai_deployment:
-            raise LLMError("Azure OpenAI provider requires AZURE_OPENAI_DEPLOYMENT to be set")
-        return AzureOpenAILLMService(s)
+        svc = AzureOpenAILLMService(s)
+        if model_override:
+            svc._model = model_override
     elif provider == "ollama":
-        return OllamaLLMService(s)
+        svc = OllamaLLMService(s)
+        if model_override:
+            svc._model = model_override
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
+
+    svc.use_case = use_case
+    return svc
