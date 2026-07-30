@@ -1565,9 +1565,9 @@
             html += '<label>Characters (comma-separated)</label>';
             html += `<input type="text" name="characters" value="${escapeAttr((detail.characters || []).join(', '))}">`;
             html += '<label>Reveals (one per line)</label>';
-            html += `<textarea name="reveals">${escapeHtml((detail.reveals || []).join('\\n'))}</textarea>`;
+            html += `<textarea name="reveals">${escapeHtml((Array.isArray(detail.reveals) ? detail.reveals.join("\n") : (detail.reveals || "")))}</textarea>`;
             html += '<label>Quality Notes (one per line)</label>';
-            html += `<textarea name="quality_notes">${escapeHtml((detail.quality_notes || []).join('\\n'))}</textarea>`;
+            html += `<textarea name="quality_notes">${escapeHtml((Array.isArray(detail.quality_notes) ? detail.quality_notes.join("\n") : (detail.quality_notes || "")))}</textarea>`;
             html += '<div class="form-actions">';
             html += `<button type="button" class="btn" onclick="submitEditForm('${nodeId}')">💾 Save</button>`;
             html += `<button type="button" class="btn btn-secondary" onclick="toggleEditForm('${nodeId}')">Cancel</button>`;
@@ -1680,7 +1680,7 @@
             }
 
             // Quality notes
-            if (detail.quality_notes && detail.quality_notes.length > 0) {
+            if (Array.isArray(detail.quality_notes) && detail.quality_notes.length > 0) {
                 html += '<div class="detail-section">';
                 html += '<h4>Quality Notes</h4>';
                 html += '<ul style="list-style: disc; padding-left: 1.5rem; font-size: 0.85rem;">';
