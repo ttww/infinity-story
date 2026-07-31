@@ -77,6 +77,11 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def invalidate_settings() -> None:
+    """Clear the cached settings so the next call re-reads .env."""
+    get_settings.cache_clear()
+
+
 # Singleton
 settings = get_settings()
 

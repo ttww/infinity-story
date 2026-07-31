@@ -1587,11 +1587,14 @@ async def model_config_page(request: Request):
 async def save_model_config(request: Request):
     """Save the model configuration."""
     from app.services.model_config import ModelConfig, save_config, load_config
+    from app.core.config import invalidate_settings
 
     body = await request.json()
     try:
         config = ModelConfig(**body)
         save_config(config)
+        # Invalidate settings cache so the next LLM call re-reads .env
+        invalidate_settings()
         return JSONResponse(content={"ok": True})
     except Exception as exc:
         return JSONResponse(

@@ -1282,7 +1282,7 @@ def _resolve_openai_key(settings) -> str:
             for line in profile_env.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if line.startswith("OPENAI_API_KEY="):
-                    val = line.split("=", 1)[1].strip().strip("\"")
+                    val = line.split("=", 1)[1].strip().strip("\"'")
                     if val and val.startswith("sk-"):
                         return val
         except Exception:
@@ -1329,12 +1329,12 @@ def get_llm_service(
 
     # Resolve API key and base URL
     if raw_provider == "openai":
-        # OpenAI direct — try Hermes profile env first, then system env, then .env
+        # OpenAI direct
         api_key = _resolve_openai_key(s)
         base_url = "https://api.openai.com/v1"
     else:
-        # OpenRouter (default)
-        api_key = s.openai_api_key
+        # OpenRouter
+        api_key = _resolve_openai_key(s)
         base_url = s.openai_base_url or "https://openrouter.ai/api/v1"
 
     # API key check
