@@ -152,15 +152,30 @@ def _get_cache_path() -> Path:
 async def fetch_openrouter_models() -> list[str]:
     """Fetch available models from OpenRouter API and cache them."""
     import httpx
-    from app.core.config import get_settings
+    from app.core.config import BASE_DIR
 
-    settings = get_settings()
+    base_dir = BASE_DIR  # /opt/data/infinity-story
+    env_path = base_dir / ".env"
+
+    # Read key directly from the project's .env file (bypass cached settings)
+    key = ""
+    if env_path.exists():
+        try:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("OPENAI_API_KEY="):
+                    val = line.split("=", 1)[1].strip().strip("\"'")
+                    if val:
+                        key = val
+                        break
+        except Exception:
+            pass
+
+    if not key:
+        logger.error("Cannot fetch OpenRouter models: OPENAI_API_KEY not found in %s", env_path)
+        return KNOWN_OPENROUTER_MODELS
+
     url = "https://openrouter.ai/api/v1/models"
-    key = settings.openai_api_key or ""
-    # Try to resolve the key from all sources
-    if not key or not key.startswith("sk-"):
-        from app.services.llm_service import _resolve_openai_key
-        key = _resolve_openai_key(settings)
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
