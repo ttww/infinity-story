@@ -3,6 +3,11 @@
 Runtime Story System: processes user messages, executes published stories.
 """
 
+import asyncio
+import logging
+import os
+import signal
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,6 +30,17 @@ async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     from app.persistence.database import init_db
     await init_db()
+
+    # Register forced-exit signal handler for fast reloads
+    # If uvicorn hangs during shutdown (open connections), this
+    # kills the process after a timeout instead of blocking forever.
+    def _force_exit(signum, frame):
+        logger.warning("Forced exit on signal %d — skipping graceful shutdown", signum)
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, _force_exit)
+    signal.signal(signal.SIGINT, _force_exit)
+
     yield
 
 
