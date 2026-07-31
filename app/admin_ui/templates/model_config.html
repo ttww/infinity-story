@@ -236,7 +236,7 @@
                 return fetch('/admin/config/models/test', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ use_case: key, prompt: 'Antworte mit einem kurzen Satz von max. 10 Wörtern.' }),
+                    body: JSON.stringify({ use_case: key, prompt: 'Antworte mit einem kurzen Satz von max. 10 Wörtern.', provider: provider, model: model }),
                 });
             })
             .then(r => r.json())

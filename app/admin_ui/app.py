@@ -1606,9 +1606,22 @@ async def save_model_config(request: Request):
 @admin_app.post("/config/models/test", response_class=JSONResponse)
 async def test_model_connection(request: Request):
     """Test a model connection by sending a simple prompt."""
+    from app.services.model_config import ModelConfig, save_config, load_config
+    from app.core.config import invalidate_settings
+
     body = await request.json()
     use_case = body.get("use_case", "review")
     test_prompt = body.get("prompt", "Antworte mit 'OK'.")
+
+    # Merge the test assignment into existing config (don't overwrite others)
+    from app.services.model_config import ModelAssignment
+    config = load_config()
+    provider = body.get("provider")
+    model = body.get("model")
+    if provider and model:
+        config.assignments[use_case] = ModelAssignment(provider=provider, model=model)
+        save_config(config)
+        invalidate_settings()
 
     try:
         from app.services.llm_service import get_llm_service
@@ -1636,7 +1649,9 @@ async def test_model_connection(request: Request):
 async def refresh_models(request: Request):
     """Fetch available models from OpenRouter API."""
     from app.services.model_config import fetch_openrouter_models
+    from app.core.config import invalidate_settings
 
+    invalidate_settings()
     try:
         models = await fetch_openrouter_models()
         return JSONResponse(content={"ok": True, "models": models})

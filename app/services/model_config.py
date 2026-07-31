@@ -126,14 +126,16 @@ KNOWN_OPENROUTER_MODELS = [
 ]
 
 KNOWN_OPENAI_MODELS = [
-    "gpt-5.x",
-    "gpt-5.0",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4.1",
     "gpt-4.1-nano",
+    "gpt-4.1-mini",
     "o3-mini",
     "o4-mini",
+    "o1",
+    "o1-mini",
+    "o1-pro",
 ]
 
 # ── Dynamic model list from OpenRouter API ─────────────────────────
@@ -154,8 +156,13 @@ async def fetch_openrouter_models() -> list[str]:
 
     settings = get_settings()
     url = "https://openrouter.ai/api/v1/models"
+    key = settings.openai_api_key or ""
+    # Try to resolve the key from all sources
+    if not key or not key.startswith("sk-"):
+        from app.services.llm_service import _resolve_openai_key
+        key = _resolve_openai_key(settings)
     headers = {
-        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
 
