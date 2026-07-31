@@ -1570,13 +1570,14 @@ async def model_config_page(request: Request):
     """Model configuration page — per-use-case model selection."""
     from app.services.model_config import (
         load_config, USE_CASES,
-        KNOWN_OPENROUTER_MODELS, KNOWN_OPENAI_MODELS,
+        KNOWN_OPENAI_MODELS,
+        get_cached_openrouter_models,
     )
     config = load_config()
     return templates.TemplateResponse(request, "model_config.html", {
         "config": config,
         "use_cases": USE_CASES,
-        "openrouter_models": KNOWN_OPENROUTER_MODELS,
+        "openrouter_models": get_cached_openrouter_models(),
         "openai_models": KNOWN_OPENAI_MODELS,
         "usage_stats": _get_usage_stats(),
     })
@@ -1621,6 +1622,21 @@ async def test_model_connection(request: Request):
             "provider": llm.provider_name,
             "use_case": use_case,
         })
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(exc)},
+        )
+
+
+@admin_app.post("/config/models/refresh", response_class=JSONResponse)
+async def refresh_models(request: Request):
+    """Fetch available models from OpenRouter API."""
+    from app.services.model_config import fetch_openrouter_models
+
+    try:
+        models = await fetch_openrouter_models()
+        return JSONResponse(content={"ok": True, "models": models})
     except Exception as exc:
         return JSONResponse(
             status_code=500,

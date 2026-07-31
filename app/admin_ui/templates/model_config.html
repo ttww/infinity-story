@@ -74,7 +74,7 @@
                             </select>
                         </td>
                         <td>
-                            <select class="model-select" data-key="{{ key }}" id="model-{{ key }}" style="min-width:280px;">
+                            <select class="model-select" data-key="{{ key }}" id="model-{{ key }}" style="min-width:350px;">
                                 {% if a and a.provider == 'openai' %}
                                     {% for m in openai_models %}
                                     <option value="{{ m }}" {% if a and a.model == m %}selected{% endif %}>{{ m }}</option>
@@ -96,6 +96,7 @@
             </table>
             <div style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center;">
                 <button class="btn btn-success" onclick="saveAllModels()">💾 Alle speichern</button>
+                <button class="btn btn-secondary" onclick="refreshModels()">🔄 Modelle aktualisieren</button>
                 <span id="save-msg" class="msg"></span>
             </div>
         </div>
@@ -163,6 +164,50 @@
                 btn.disabled = false;
                 btn.textContent = '💾 Alle speichern';
                 setTimeout(() => { if (msg.className.includes('ok')) msg.textContent = ''; }, 3000);
+            });
+        }
+
+        function refreshModels() {
+            const btn = document.querySelector('[onclick="refreshModels()"]');
+            const msg = document.getElementById('save-msg');
+            btn.disabled = true;
+            btn.textContent = 'Lade...';
+            msg.textContent = '⏳ Lade Modelle von OpenRouter...';
+            msg.className = 'msg';
+
+            fetch('/admin/config/models/refresh', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok && data.models) {
+                    msg.textContent = '✅ ' + data.models.length + ' Modelle geladen';
+                    msg.className = 'msg ok';
+                    // Update all OpenRouter model selects
+                    document.querySelectorAll('.model-provider').forEach(function(el) {
+                        if (el.value === 'openrouter') {
+                            const key = el.dataset.key;
+                            const select = document.getElementById('model-' + key);
+                            const current = select.value;
+                            select.innerHTML = data.models.map(function(m) {
+                                return '<option value="' + m + '" ' + (m === current ? 'selected' : '') + '>' + m + '</option>';
+                            }).join('');
+                            if (!data.models.includes(current)) {
+                                select.value = data.models[0] || '';
+                            }
+                        }
+                    });
+                } else {
+                    msg.textContent = '❌ ' + (data.error || 'Fehler beim Laden');
+                    msg.className = 'msg err';
+                }
+            })
+            .catch(err => {
+                msg.textContent = '❌ ' + err.message;
+                msg.className = 'msg err';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '🔄 Modelle aktualisieren';
+                setTimeout(function() { if (msg.className.includes('ok')) msg.textContent = ''; }, 5000);
             });
         }
 
