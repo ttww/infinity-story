@@ -1290,6 +1290,27 @@ def _resolve_openai_key(settings) -> str:
     return ""
 
 
+def _read_dotenv_key(name: str = "OPENAI_API_KEY") -> str:
+    """Read a key value directly from the project .env file.
+    Bypasses env vars and settings cache — always reads the file.
+    """
+    from pathlib import Path
+    from app.core.config import BASE_DIR
+    env_path = BASE_DIR / ".env"
+    if not env_path.exists():
+        return ""
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith(f"{name}="):
+                val = line.split("=", 1)[1].strip().strip("\"'")
+                if val:
+                    return val
+    except Exception:
+        pass
+    return ""
+
+
 def get_llm_service(
     settings: Settings | None = None,
     use_case: str | None = None,
@@ -1333,8 +1354,8 @@ def get_llm_service(
         api_key = _resolve_openai_key(s)
         base_url = "https://api.openai.com/v1"
     else:
-        # OpenRouter
-        api_key = _resolve_openai_key(s)
+        # OpenRouter — read key from project .env (NOT from env vars)
+        api_key = _read_dotenv_key("OPENAI_API_KEY")
         base_url = s.openai_base_url or "https://openrouter.ai/api/v1"
 
     # API key check

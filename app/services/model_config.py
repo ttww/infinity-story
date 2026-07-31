@@ -152,27 +152,11 @@ def _get_cache_path() -> Path:
 async def fetch_openrouter_models() -> list[str]:
     """Fetch available models from OpenRouter API and cache them."""
     import httpx
-    from app.core.config import BASE_DIR
+    from app.services.llm_service import _read_dotenv_key
 
-    base_dir = BASE_DIR  # /opt/data/infinity-story
-    env_path = base_dir / ".env"
-
-    # Read key directly from the project's .env file (bypass cached settings)
-    key = ""
-    if env_path.exists():
-        try:
-            for line in env_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line.startswith("OPENAI_API_KEY="):
-                    val = line.split("=", 1)[1].strip().strip("\"'")
-                    if val:
-                        key = val
-                        break
-        except Exception:
-            pass
-
+    key = _read_dotenv_key("OPENAI_API_KEY")
     if not key:
-        logger.error("Cannot fetch OpenRouter models: OPENAI_API_KEY not found in %s", env_path)
+        logger.error("Cannot fetch OpenRouter models: OPENAI_API_KEY not found in project .env")
         return KNOWN_OPENROUTER_MODELS
 
     url = "https://openrouter.ai/api/v1/models"

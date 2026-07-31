@@ -1,26 +1,6 @@
 {
   "assignments": {
-    "review": {
-      "provider": "openrouter",
-      "model": "deepseek/deepseek-v4-flash"
-    },
-    "scene_generation": {
-      "provider": "openai",
-      "model": "gpt-4.1"
-    },
     "outline_generation": {
-      "provider": "openrouter",
-      "model": "ai21/jamba-large-1.7"
-    },
-    "graph_generation": {
-      "provider": "openrouter",
-      "model": "ai21/jamba-large-1.7"
-    },
-    "repair": {
-      "provider": "openrouter",
-      "model": "ai21/jamba-large-1.7"
-    },
-    "enhancement": {
       "provider": "openrouter",
       "model": "ai21/jamba-large-1.7"
     }
