@@ -181,6 +181,40 @@ class StoryRepairAgent:
         return True
 
     @staticmethod
+    def _check_graph_connectivity(
+        graph: dict[str, Any],
+    ) -> set[str]:
+        """Return the set of node IDs reachable from start_node_id.
+
+        An empty set means the start node itself is missing or the
+        graph has no nodes.
+        """
+        nodes = graph.get("nodes", {})
+        if not isinstance(nodes, dict) or not nodes:
+            return set()
+
+        start_id = graph.get("start_node_id")
+        if start_id is None or start_id not in nodes:
+            return set()
+
+        visited: set[str] = set()
+        queue = [start_id]
+        while queue:
+            nid = queue.pop(0)
+            if nid in visited:
+                continue
+            visited.add(nid)
+            node = nodes.get(nid)
+            if not isinstance(node, dict):
+                continue
+            for choice in node.get("choices", []) or []:
+                if isinstance(choice, dict):
+                    next_id = choice.get("next_node_id")
+                    if next_id and next_id in nodes:
+                        queue.append(next_id)
+        return visited
+
+    @staticmethod
     def _apply_patches(
         original: dict[str, Any],
         result: dict[str, Any],

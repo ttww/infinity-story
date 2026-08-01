@@ -182,9 +182,10 @@ class StoryCriticAgent:
                     system_prompt=CRITIC_SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                 )
-                return self._merge_internal_ref_findings(
+                result = self._merge_internal_ref_findings(
                     self._validate_and_normalise(result), graph,
                 )
+                return self._merge_connectivity_findings(result, graph)
             except (LLMResponseError, ValidationError) as exc:
                 last_exc = exc
                 logger.warning(
@@ -318,6 +319,87 @@ class StoryCriticAgent:
                     f'Remove the internal reference "{f.match_text}" '
                     f'from {f.field_name} in {f.node_id}. Replace with '
                     f'natural story text.'
+                ),
+            })
+        review["issues"] = issues
+        return review
+
+    @staticmethod
+    def _merge_connectivity_findings(
+        review: dict[str, Any],
+        graph: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Check graph connectivity and add issues if disconnected.
+
+        Uses BFS from the start node to detect nodes that are not
+        reachable.  Adds a ``high``-severity issue per unreachable
+        node cluster.
+        """
+        nodes = graph.get("nodes", {})
+        if not isinstance(nodes, dict) or not nodes:
+            return review
+
+        start_id = graph.get("start_node_id")
+        if start_id is None or start_id not in nodes:
+            return review
+
+        # BFS from start
+        visited: set[str] = set()
+        queue = [start_id]
+        while queue:
+            nid = queue.pop(0)
+            if nid in visited:
+                continue
+            visited.add(nid)
+            node = nodes.get(nid)
+            if not isinstance(node, dict):
+                continue
+            for choice in node.get("choices", []) or []:
+                if isinstance(choice, dict):
+                    next_id = choice.get("next_node_id")
+                    if next_id and next_id in nodes:
+                        queue.append(next_id)
+
+        unreachable = [nid for nid in nodes if nid not in visited]
+        if not unreachable:
+            return review
+
+        issues = review.get("issues", [])
+        # Group by connected components within unreachable set
+        pieces: list[list[str]] = []
+        remaining = set(unreachable)
+        while remaining:
+            seed = next(iter(remaining))
+            comp: set[str] = set()
+            q = [seed]
+            while q:
+                cid = q.pop(0)
+                if cid in comp:
+                    continue
+                comp.add(cid)
+                remaining.discard(cid)
+                node = nodes.get(cid)
+                if isinstance(node, dict):
+                    for choice in node.get("choices", []) or []:
+                        if isinstance(choice, dict):
+                            nid = choice.get("next_node_id")
+                            if nid and nid in remaining:
+                                q.append(nid)
+            pieces.append(sorted(comp))
+
+        for piece in pieces:
+            issues.append({
+                "severity": "high",
+                "node_id": piece[0],
+                "problem": (
+                    f"DISCONNECTED_SUBGRAPH: {len(piece)} Knoten "
+                    f"({', '.join(piece)}) sind nicht vom Startknoten "
+                    f"aus erreichbar."
+                ),
+                "suggestion": (
+                    f"Füge in einem Endknoten des Hauptgraphen eine Choice "
+                    f"hinzu, die auf '{piece[0]}' verweist, oder markiere "
+                    f"die Knoten als optional."
                 ),
             })
         review["issues"] = issues

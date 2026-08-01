@@ -37,6 +37,15 @@ from collections import defaultdict
 from typing import Any
 
 
+def _describe_unreachable_pieces(
+    nodes: dict[str, Any], unreachable: list[str],
+) -> str:
+    """Build a human-readable description of disconnected subgraphs."""
+    _ = nodes  # unused, kept for API compatibility
+    return (f"Die Knoten {unreachable} sind nicht vom Startknoten aus "
+            f"erreichbar. Das deutet auf einen fehlenden Übergang (Choice) hin.")
+
+
 class StoryValidationService:
     """Validates technical correctness of a story graph (Spec §7.6).
 
@@ -169,6 +178,10 @@ class StoryValidationService:
         )
         checks["no_unreachable_mandatory"] = self._check_unreachable_mandatory(
             nodes, reachable, errors, warnings,
+        )
+        # ── 15. No disconnected subgraphs ───────────────────────────
+        checks["no_disconnected_subgraphs"] = self._check_disconnected_subgraphs(
+            nodes, reachable, errors,
         )
 
         # ── 12. No cycles without progress ──────────────────────────
@@ -509,6 +522,32 @@ class StoryValidationService:
             errors.append(f"Unreachable mandatory node: '{nid}'.")
             ok = False
         return ok
+
+    # ── Check 15: No disconnected subgraphs ───────────────────────
+
+    @staticmethod
+    def _check_disconnected_subgraphs(
+        nodes: dict[str, Any],
+        reachable: set[str],
+        errors: list[str],
+    ) -> bool:
+        """Detect nodes that form a disconnected subgraph.
+
+        Unlike check 5 (unreachable_mandatory), this check flags
+        EVERY node not reachable from the start, including nodes
+        marked as ``optional``.  A graph in two or more pieces is
+        always a design problem — optional or not.
+        """
+        unreachable = [nid for nid in nodes if nid not in reachable]
+        if unreachable:
+            piece_info = _describe_unreachable_pieces(nodes, unreachable)
+            errors.append(
+                f"Graph is broken into disconnected pieces. "
+                f"Nodes not reachable from start: {unreachable}. "
+                f"{piece_info}"
+            )
+            return False
+        return True
 
     # ── Check 12: No cycles without progress ───────────────────────
 
