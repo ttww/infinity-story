@@ -212,6 +212,9 @@ class StoryRepairAgent:
                     next_id = choice.get("next_node_id")
                     if next_id and next_id in nodes:
                         queue.append(next_id)
+            node_next = node.get("next_node_id")
+            if node_next and node_next in nodes and node_next not in visited:
+                queue.append(node_next)
         return visited
 
     @staticmethod

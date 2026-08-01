@@ -354,11 +354,16 @@ class StoryCriticAgent:
             node = nodes.get(nid)
             if not isinstance(node, dict):
                 continue
+            # Follow choice-level edges
             for choice in node.get("choices", []) or []:
                 if isinstance(choice, dict):
                     next_id = choice.get("next_node_id")
                     if next_id and next_id in nodes:
                         queue.append(next_id)
+            # Follow node-level next_node_id (auto-advance nodes)
+            node_next = node.get("next_node_id")
+            if node_next and node_next in nodes and node_next not in visited:
+                queue.append(node_next)
 
         unreachable = [nid for nid in nodes if nid not in visited]
         if not unreachable:
