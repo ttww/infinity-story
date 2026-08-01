@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = "https://api.openai.com/v1"
+    # OpenRouter (separater Key, kein Teilen mit OpenAI)
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "deepseek/deepseek-v4-flash"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
 

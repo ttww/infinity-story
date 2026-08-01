@@ -152,9 +152,9 @@ def _get_cache_path() -> Path:
 async def fetch_openrouter_models() -> list[str]:
     """Fetch available models from OpenRouter API and cache them."""
     import httpx
-    from app.services.llm_service import _read_dotenv_key
+    from app.core.config import get_settings
 
-    key = _read_dotenv_key("OPENAI_API_KEY")
+    key = get_settings().openrouter_api_key
     if not key:
         logger.error("Cannot fetch OpenRouter models: OPENAI_API_KEY not found in project .env")
         return KNOWN_OPENROUTER_MODELS

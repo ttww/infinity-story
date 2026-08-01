@@ -1265,52 +1265,6 @@ class OllamaLLMService(LLMService):
 
 
 # ── Factory ──────────────────────────────────────────────────────
-
-
-def _resolve_openai_key(settings) -> str:
-    """Resolve the OpenAI API key from multiple sources."""
-    from pathlib import Path
-    env_key = os.environ.get("OPENAI_API_KEY", "")
-    if env_key and env_key != settings.openai_api_key:
-        return env_key
-    cfg_key = settings.openai_api_key
-    if cfg_key and cfg_key.startswith("sk-"):
-        return cfg_key
-    profile_env = Path.home() / "profiles" / "infinity-story" / ".env"
-    if profile_env.exists():
-        try:
-            for line in profile_env.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line.startswith("OPENAI_API_KEY="):
-                    val = line.split("=", 1)[1].strip().strip("\"'")
-                    if val and val.startswith("sk-"):
-                        return val
-        except Exception:
-            pass
-    return ""
-
-
-def _read_dotenv_key(name: str = "OPENAI_API_KEY") -> str:
-    """Read a key value directly from the project .env file.
-    Bypasses env vars and settings cache — always reads the file.
-    """
-    from pathlib import Path
-    from app.core.config import BASE_DIR
-    env_path = BASE_DIR / ".env"
-    if not env_path.exists():
-        return ""
-    try:
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith(f"{name}="):
-                val = line.split("=", 1)[1].strip().strip("\"'")
-                if val:
-                    return val
-    except Exception:
-        pass
-    return ""
-
-
 def get_llm_service(
     settings: Settings | None = None,
     use_case: str | None = None,
@@ -1332,7 +1286,6 @@ def get_llm_service(
     # Determine which model to use
     model_override: str | None = None
     provider_override: str | None = None
-    base_url_override: str | None = None
 
     if use_case and use_case in config.assignments:
         assignment = config.assignments[use_case]
@@ -1348,21 +1301,27 @@ def get_llm_service(
     else:
         provider = raw_provider
 
-    # Resolve API key and base URL
+    # ── Key-Resolution: sauber getrennt ──────────────────────────
     if raw_provider == "openai":
-        # OpenAI direct
-        api_key = _resolve_openai_key(s)
+        api_key = s.openai_api_key
         base_url = "https://api.openai.com/v1"
+        model = model_override or s.openai_model
+    elif raw_provider == "openrouter":
+        api_key = s.openrouter_api_key
+        base_url = s.openrouter_base_url
+        model = model_override or s.openrouter_model
     else:
-        # OpenRouter — read key from project .env (NOT from env vars)
-        api_key = _read_dotenv_key("OPENAI_API_KEY")
-        base_url = s.openai_base_url or "https://openrouter.ai/api/v1"
+        # fallback for azure / ollama / mock
+        api_key = s.openai_api_key
+        base_url = s.openai_base_url
+        model = model_override or s.openai_model
 
     # API key check
     if provider == "openai" and not api_key:
-        raise LLMError("OpenAI/OpenRouter API key not configured. "
-                        "Set OPENAI_API_KEY in .env (OpenRouter) or "
-                        "export OPENAI_API_KEY=sk-... in your shell (OpenAI).")
+        err = ("OpenAI key not configured" if raw_provider == "openai"
+               else "OpenRouter key not configured. "
+                    "Set OPENROUTER_API_KEY in project .env")
+        raise LLMError(err)
 
     if provider == "mock":
         svc = MockLLMService(s)
@@ -1372,7 +1331,7 @@ def get_llm_service(
         svc = OpenAILLMService(s)
         svc._api_key = api_key
         svc._base_url = base_url
-        svc._model = model_override or s.openai_model
+        svc._model = model
     elif provider == "azure_openai":
         svc = AzureOpenAILLMService(s)
         if model_override:
