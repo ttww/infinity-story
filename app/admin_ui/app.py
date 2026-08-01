@@ -449,7 +449,8 @@ async def _run_review_background(
                 len(graph_data.get("nodes", {}))))
 
             # ── Combined Review + Repair mit Heartbeat ──
-            agent = ReviewRepairAgent()
+            from app.services.llm_service import get_llm_service
+            agent = ReviewRepairAgent(llm=get_llm_service(use_case="review"))
             result = await _run_with_heartbeat(
                 task_id, "review_repair",
                 [
@@ -589,7 +590,7 @@ async def _run_repair_background(
             outline = version_repo.parse_outline(version) or {}
 
             # ── Combined Review + Repair with Heartbeat ──
-            agent = ReviewRepairAgent()
+            from app.services.llm_service import get_llm_service; agent = ReviewRepairAgent(llm=get_llm_service(use_case="review"))
             result = await _run_with_heartbeat(
                 task_id, "repair_iteration",
                 [
@@ -801,7 +802,7 @@ async def _run_fix_background(
             }
 
             # ── Combined Review + Repair (targeted) with Heartbeat ──
-            agent = ReviewRepairAgent()
+            from app.services.llm_service import get_llm_service; agent = ReviewRepairAgent(llm=get_llm_service(use_case="review"))
             result = await _run_with_heartbeat(
                 task_id, "fix_repair",
                 [
