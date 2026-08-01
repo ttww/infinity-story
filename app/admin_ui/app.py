@@ -1570,15 +1570,15 @@ async def model_config_page(request: Request):
     """Model configuration page — per-use-case model selection."""
     from app.services.model_config import (
         load_config, USE_CASES,
-        KNOWN_OPENAI_MODELS,
         get_cached_openrouter_models,
+        get_cached_openai_models,
     )
     config = load_config()
     return templates.TemplateResponse(request, "model_config.html", {
         "config": config,
         "use_cases": USE_CASES,
         "openrouter_models": get_cached_openrouter_models(),
-        "openai_models": KNOWN_OPENAI_MODELS,
+        "openai_models": get_cached_openai_models(),
         "usage_stats": _get_usage_stats(),
     })
 
@@ -1647,14 +1647,23 @@ async def test_model_connection(request: Request):
 
 @admin_app.post("/config/models/refresh", response_class=JSONResponse)
 async def refresh_models(request: Request):
-    """Fetch available models from OpenRouter API."""
-    from app.services.model_config import fetch_openrouter_models
+    """Fetch available models from OpenRouter AND OpenAI APIs."""
+    from app.services.model_config import (
+        fetch_openrouter_models, fetch_openai_models,
+    )
     from app.core.config import invalidate_settings
 
     invalidate_settings()
     try:
-        models = await fetch_openrouter_models()
-        return JSONResponse(content={"ok": True, "models": models})
+        or_models, oa_models = await asyncio.gather(
+            fetch_openrouter_models(),
+            fetch_openai_models(),
+        )
+        return JSONResponse(content={
+            "ok": True,
+            "openrouter": or_models,
+            "openai": oa_models,
+        })
     except Exception as exc:
         return JSONResponse(
             status_code=500,

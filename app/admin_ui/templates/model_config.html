@@ -178,23 +178,44 @@
             fetch('/admin/config/models/refresh', { method: 'POST' })
             .then(r => r.json())
             .then(data => {
-                if (data.ok && data.models) {
-                    msg.textContent = '✅ ' + data.models.length + ' Modelle geladen';
-                    msg.className = 'msg ok';
-                    // Update all OpenRouter model selects
-                    document.querySelectorAll('.model-provider').forEach(function(el) {
-                        if (el.value === 'openrouter') {
-                            const key = el.dataset.key;
-                            const select = document.getElementById('model-' + key);
-                            const current = select.value;
-                            select.innerHTML = data.models.map(function(m) {
-                                return '<option value="' + m + '" ' + (m === current ? 'selected' : '') + '>' + m + '</option>';
-                            }).join('');
-                            if (!data.models.includes(current)) {
-                                select.value = data.models[0] || '';
+                if (data.ok) {
+                    let count = 0;
+                    // Update OpenRouter selects
+                    if (data.openrouter) {
+                        count += data.openrouter.length;
+                        document.querySelectorAll('.model-provider').forEach(function(el) {
+                            if (el.value === 'openrouter') {
+                                const key = el.dataset.key;
+                                const select = document.getElementById('model-' + key);
+                                const current = select.value;
+                                select.innerHTML = data.openrouter.map(function(m) {
+                                    return '<option value="' + m + '" ' + (m === current ? 'selected' : '') + '>' + m + '</option>';
+                                }).join('');
+                                if (!data.openrouter.includes(current)) {
+                                    select.value = data.openrouter[0] || '';
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
+                    // Update OpenAI selects
+                    if (data.openai) {
+                        count += data.openai.length;
+                        document.querySelectorAll('.model-provider').forEach(function(el) {
+                            if (el.value === 'openai') {
+                                const key = el.dataset.key;
+                                const select = document.getElementById('model-' + key);
+                                const current = select.value;
+                                select.innerHTML = data.openai.map(function(m) {
+                                    return '<option value="' + m + '" ' + (m === current ? 'selected' : '') + '>' + m + '</option>';
+                                }).join('');
+                                if (!data.openai.includes(current)) {
+                                    select.value = data.openai[0] || '';
+                                }
+                            }
+                        });
+                    }
+                    msg.textContent = '✅ ' + count + ' Modelle geladen';
+                    msg.className = 'msg ok';
                 } else {
                     msg.textContent = '❌ ' + (data.error || 'Fehler beim Laden');
                     msg.className = 'msg err';

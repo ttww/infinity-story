@@ -144,12 +144,13 @@ KNOWN_OPENAI_MODELS = [
 # ── Dynamic model list from OpenRouter API ─────────────────────────
 
 CACHE_DIR = "data"
-CACHE_FILE = "openrouter_models.json"
+CACHE_FILE_OR = "openrouter_models.json"
+CACHE_FILE_OA = "openai_models.json"
 
 
-def _get_cache_path() -> Path:
+def _get_cache_path(filename: str = "openrouter_models.json") -> Path:
     from app.core.config import BASE_DIR
-    return BASE_DIR / CACHE_DIR / CACHE_FILE
+    return BASE_DIR / CACHE_DIR / filename
 
 
 async def fetch_openrouter_models() -> list[str]:
@@ -179,7 +180,7 @@ async def fetch_openrouter_models() -> list[str]:
                     if m.get("id")
                 ))
                 # Cache the result
-                cache_path = _get_cache_path()
+                cache_path = _get_cache_path(CACHE_FILE_OR)
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 cache_path.write_text(
                     json.dumps(models, ensure_ascii=False, indent=2),
@@ -193,7 +194,7 @@ async def fetch_openrouter_models() -> list[str]:
         logger.warning("Failed to fetch OpenRouter models: %s", exc)
 
     # Fallback to cache
-    cache_path = _get_cache_path()
+    cache_path = _get_cache_path(CACHE_FILE_OR)
     if cache_path.exists():
         try:
             return json.loads(cache_path.read_text(encoding="utf-8"))
@@ -205,10 +206,75 @@ async def fetch_openrouter_models() -> list[str]:
 
 def get_cached_openrouter_models() -> list[str]:
     """Return cached OpenRouter models, or the static list if no cache."""
-    cache_path = _get_cache_path()
+    cache_path = _get_cache_path(CACHE_FILE_OR)
     if cache_path.exists():
         try:
             return json.loads(cache_path.read_text(encoding="utf-8"))
         except Exception:
             pass
     return KNOWN_OPENROUTER_MODELS
+
+
+async def fetch_openai_models() -> list[str]:
+    """Fetch available models from OpenAI API and cache them."""
+    import httpx
+    from app.core.config import get_settings
+
+    key = get_settings().openai_api_key
+    if not key:
+        logger.error("Cannot fetch OpenAI models: OPENAI_API_KEY not configured")
+        return KNOWN_OPENAI_MODELS
+
+    url = "https://api.openai.com/v1/models"
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+
+    # Filter prefixes to include only relevant models
+    relevant_prefixes = ("gpt-4", "gpt-5", "o1", "o2", "o3", "o4", "o5")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = sorted(set(
+                    m.get("id", "")
+                    for m in data.get("data", [])
+                    if m.get("id") and m["id"].startswith(relevant_prefixes)
+                ))
+                # Cache the result
+                cache_path = _get_cache_path(CACHE_FILE_OA)
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(
+                    json.dumps(models, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                logger.info("Fetched %d models from OpenAI", len(models))
+                return models
+            else:
+                logger.warning("OpenAI API returned %s", resp.status_code)
+    except Exception as exc:
+        logger.warning("Failed to fetch OpenAI models: %s", exc)
+
+    # Fallback to cache
+    cache_path = _get_cache_path(CACHE_FILE_OA)
+    if cache_path.exists():
+        try:
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    return KNOWN_OPENAI_MODELS
+
+
+def get_cached_openai_models() -> list[str]:
+    """Return cached OpenAI models, or the static list if no cache."""
+    cache_path = _get_cache_path(CACHE_FILE_OA)
+    if cache_path.exists():
+        try:
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return KNOWN_OPENAI_MODELS
