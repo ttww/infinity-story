@@ -49,6 +49,14 @@ class ReviewRepairAgent:
             self._llm = get_llm_service(get_settings())
         return self._llm
 
+    @property
+    def llm_name(self) -> str:
+        """Human-readable model name (model + use case)."""
+        llm = self.llm
+        model = getattr(llm, "_model", "?")
+        ucase = llm.use_case or "default"
+        return f"{model} ({ucase})"
+
     async def review_and_repair(
         self,
         outline: dict[str, Any],
@@ -200,15 +208,17 @@ class ReviewRepairAgent:
             "Last error: %s",
             self._max_iterations, last_error,
         )
+        model_info = f"[Model: {self.llm_name} / Provider: {self.llm.provider_name}]"
         return {
             "score": 0.0,
             "issues": [{
                 "severity": "high",
                 "node_id": None,
-                "problem": f"Review+Repair fehlgeschlagen nach {self._max_iterations} Iterationen: {last_error}",
+                "problem": f"Review+Repair fehlgeschlagen nach {self._max_iterations} Iterationen: "
+                           f"{last_error}  {model_info}",
                 "suggestion": "Manuelle Überprüfung erforderlich",
             }],
             "repaired_graph": graph,
-            "summary": f"Review+Repair fehlgeschlagen (letzter Fehler: {last_error})",
+            "summary": f"Review+Repair fehlgeschlagen (letzter Fehler: {last_error}) {model_info}",
             "iterations_used": self._max_iterations,
         }

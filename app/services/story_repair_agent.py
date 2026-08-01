@@ -37,6 +37,13 @@ class StoryRepairAgent:
             self._llm = get_llm_service(get_settings())
         return self._llm
 
+    @property
+    def llm_name(self) -> str:
+        llm = self.llm
+        model = getattr(llm, "_model", "?")
+        ucase = llm.use_case or "default"
+        return f"{model} ({ucase})"
+
     async def repair(
         self,
         graph: dict[str, Any],
@@ -108,11 +115,12 @@ class StoryRepairAgent:
             "Last error: %s",
             self._max_retries + 1, last_error,
         )
+        model_info = f"[Model: {self.llm_name} / Provider: {self.llm.provider_name}]"
         return {
             "graph": graph,
             "changes": [],
             "summary": f"Reparatur fehlgeschlagen nach {self._max_retries + 1} Versuchen "
-                        f"(letzter Fehler: {last_error}). Original-Graph unverändert.",
+                        f"(letzter Fehler: {last_error}). {model_info} Original-Graph unverändert.",
         }
 
     @staticmethod

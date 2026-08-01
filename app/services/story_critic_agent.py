@@ -133,6 +133,13 @@ class StoryCriticAgent:
             self._llm = get_llm_service(get_settings())
         return self._llm
 
+    @property
+    def llm_name(self) -> str:
+        llm = self.llm
+        model = getattr(llm, "_model", "?")
+        ucase = llm.use_case or "default"
+        return f"{model} ({ucase})"
+
     async def review(
         self,
         outline: dict[str, Any],
@@ -191,9 +198,10 @@ class StoryCriticAgent:
                 logger.error("Critic review failed: %s", exc)
                 raise
 
+        model_info = f"[Model: {self.llm_name} / Provider: {self.llm.provider_name}]"
         raise StoryCriticError(
             f"Critic review failed after {self._max_schema_retries + 1} "
-            f"attempts. Last error: {last_exc}"
+            f"attempts. {model_info} Last error: {last_exc}"
         ) from last_exc
 
     def _validate_and_normalise(
