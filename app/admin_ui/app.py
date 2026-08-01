@@ -948,7 +948,10 @@ async def run_validation(draft_id: str, session: AsyncSession = Depends(get_sess
 
     from app.models.enums import DraftStatus
     if result["is_valid"]:
-        await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+        try:
+            await draft_repo.update_status(draft_id, DraftStatus.VALIDATED)
+        except ValueError:
+            pass  # already validated
     else:
         await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REPAIR)
         await draft_repo.update_status(draft_id, DraftStatus.NEEDS_REVIEW)
